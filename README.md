@@ -1,5 +1,7 @@
 # WinMan
 
+[中文](README.md) | [English](README_EN.md)
+
 WinMan 是一个轻量级 macOS 菜单栏窗口管理工具，让 Dock 图标具有类似 Windows
 任务栏的点击行为。
 
