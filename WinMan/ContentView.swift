@@ -1,6 +1,7 @@
 import SwiftUI
 import ApplicationServices
 import ServiceManagement
+import CoreGraphics
 
 struct ContentView: View {
     @State private var isToggleEnabled: Bool = {
@@ -21,6 +22,9 @@ struct ContentView: View {
     }()
     @State private var loginItemMessage: String?
     @State private var accessibilityGranted = AXIsProcessTrusted()
+    @State private var screenCaptureGranted = CGPreflightScreenCaptureAccess()
+
+    private let permissionRefresh = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -73,21 +77,40 @@ struct ContentView: View {
             }
             .font(.footnote)
 
-            Text("Automation 用于读取 Dock，屏幕录制仅用于窗口缩略图。可通过菜单栏打开对应的系统设置。")
+            HStack {
+                Text("屏幕录制权限（窗口缩略图，可选）")
+                Spacer()
+                if screenCaptureGranted {
+                    Text("已授权").foregroundColor(.green)
+                } else {
+                    Button("申请") { _ = CGRequestScreenCaptureAccess() }
+                }
+            }
+            .font(.footnote)
+
+            Text("Automation 用于读取 Dock，屏幕录制仅用于窗口缩略图，授权后需重新打开 WinMan 生效。可通过菜单栏打开对应的系统设置。")
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.leading)
         }
         .padding()
-        .frame(width: 390, height: isPreviewEnabled ? 325 : 285)
+        .frame(width: 390, height: isPreviewEnabled ? 360 : 320)
         .onAppear {
-            accessibilityGranted = AXIsProcessTrusted()
+            refreshPermissionStatus()
             let status = SMAppService.mainApp.status
             launchAtLogin = status == .enabled || status == .requiresApproval
             if status == .requiresApproval {
                 loginItemMessage = "请在“系统设置 > 通用 > 登录项”中允许 WinMan。"
             }
         }
+        .onReceive(permissionRefresh) { _ in
+            refreshPermissionStatus()
+        }
+    }
+
+    private func refreshPermissionStatus() {
+        accessibilityGranted = AXIsProcessTrusted()
+        screenCaptureGranted = CGPreflightScreenCaptureAccess()
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {

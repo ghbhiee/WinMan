@@ -2,6 +2,14 @@ import Cocoa
 import CoreGraphics
 import SwiftUI
 import ApplicationServices
+import os
+
+// Unified logging: visible in Console.app, debug-level lines are cheap in release.
+enum WinManLog {
+    static let app = Logger(subsystem: "com.winman.app", category: "app")
+    static let dock = Logger(subsystem: "com.winman.app", category: "dock")
+    static let tracker = Logger(subsystem: "com.winman.app", category: "tracker")
+}
 
 // MARK: - App entry point
 
@@ -49,6 +57,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         label: "com.winman.finder-automation",
         qos: .userInitiated
     )
+    private let previewBuildQueue = DispatchQueue(
+        label: "com.winman.preview-thumbnails",
+        qos: .userInitiated
+    )
     private let githubURL = URL(string: "https://github.com/ghbhiee/WinMan")!
 
     // Settings
@@ -94,6 +106,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApplication.shared.applicationIconImage = appIcon
         }
         ProcessInfo.processInfo.disableAutomaticTermination("WinMan must stay resident to manage Dock clicks.")
+
+        // Cap synchronous AX calls process-wide. Without this, one hung app can
+        // stall the event tap callback long enough to freeze mouse input
+        // system-wide; a timed-out operation instead falls back to the native
+        // Dock click.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
 
         if !AXIsProcessTrusted() {
             promptForAccessibilityPermission()
@@ -348,7 +366,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("[WinMan] Failed to create event tap")
+            WinManLog.app.error("Failed to create event tap")
             scheduleEventTapRetry()
             return
         }
@@ -418,7 +436,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
             let apps = NSWorkspace.shared.runningApplications
             guard let app = apps.first(where: { delegate.matches(app: $0, dockName: dockItem.name) }) else {
-                print("[WinMan] No running app for: \(dockItem.name)")
+                WinManLog.app.debug("No running app for: \(dockItem.name, privacy: .public)")
                 return false
             }
 
@@ -447,7 +465,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
             let windowIsMinimized = window.map { delegate.windowTracker.isMinimized($0) } ?? false
 
-            print("[WinMan] \(app.localizedName ?? dockItem.name) frontmost=\(isFrontmost) minimized=\(windowIsMinimized)")
+            WinManLog.app.debug("\(app.localizedName ?? dockItem.name, privacy: .public) frontmost=\(isFrontmost) minimized=\(windowIsMinimized)")
 
             let handled: Bool
             if isFrontmost && !app.isHidden && !windowIsMinimized {
@@ -470,7 +488,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
 
             guard handled else {
-                print("[WinMan] Window operation failed; passing the Dock click through")
+                WinManLog.app.debug("Window operation failed; passing the Dock click through")
                 return false
             }
 
@@ -528,7 +546,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             var err: NSDictionary?
             NSAppleScript(source: script)?.executeAndReturnError(&err)
             if let err = err {
-                print("[WinMan] Finder click error: \(err)")
+                WinManLog.app.error("Finder click error: \(err, privacy: .public)")
             }
         }
     }
@@ -550,7 +568,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Hover preview handling
 
     static func handleMouseMoved(location: CGPoint, delegate: AppDelegate) {
-        delegate.dockMonitor.refreshIfNeeded()
+        delegate.dockMonitor.refreshIfNeeded(near: location)
 
         // After a click or right-click action, hover preview is suppressed for a short time.
         // Time-based suppression never gets permanently stuck unlike an exit-gate boolean.
@@ -636,16 +654,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let axWindows = windowTracker.windowsInInteractionOrder(for: app)
         guard axWindows.count >= 2 else { return }
 
-        var previewItems: [WindowPreviewItem] = []
+        // Collect metadata on the main thread; window imaging happens off it so
+        // the event tap callback is never blocked by slow captures.
+        var items: [WindowPreviewItem] = []
         for axWindow in axWindows {
             let title = windowTracker.windowTitle(axWindow) ?? ""
             let wid = windowTracker.windowID(axWindow)
             let minimized = windowTracker.isMinimized(axWindow)
-
-            var thumbnail: NSImage? = nil
-            if let wid = wid, !minimized, CGPreflightScreenCaptureAccess() {
-                thumbnail = captureWindowThumbnail(windowID: wid, targetSize: CGSize(width: 156, height: 116))
-            }
 
             let itemID: String
             if let wid {
@@ -654,23 +669,44 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let pointer = Unmanaged.passUnretained(axWindow).toOpaque()
                 itemID = "ax:\(UInt(bitPattern: pointer))"
             }
-            previewItems.append(WindowPreviewItem(
+            items.append(WindowPreviewItem(
                 id: itemID, element: axWindow, title: title,
-                thumbnail: thumbnail, isMinimized: minimized
+                thumbnail: nil, isMinimized: minimized, windowID: wid
             ))
         }
 
-        guard !previewItems.isEmpty else { return }
+        guard !items.isEmpty else { return }
 
-        if previewPanel == nil { previewPanel = PreviewPanel() }
+        let canCapture = CGPreflightScreenCaptureAccess()
+        previewBuildQueue.async { [weak self] in
+            let readyItems = items.map { item -> WindowPreviewItem in
+                guard canCapture, !item.isMinimized, let wid = item.windowID else { return item }
+                var updated = item
+                updated.thumbnail = captureWindowThumbnail(
+                    windowID: wid,
+                    targetSize: CGSize(width: 156, height: 116)
+                )
+                return updated
+            }
 
-        previewPanel?.show(
-            for: app, windows: previewItems, nearDockRect: dockItem.rect
-        ) { [weak self] element, app in
-            self?.previewPanel?.dismiss()
-            self?.windowTracker.setLastActiveWindow(element, for: app)
-            if self?.windowTracker.restoreAndRaise(element, app: app) == false {
-                NSSound.beep()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // The pointer may have moved on while thumbnails were captured.
+                guard self.isPreviewEnabled,
+                      self.hoveredDockItem?.name == dockItem.name,
+                      Date() >= self.suppressPreviewUntil else { return }
+
+                if self.previewPanel == nil { self.previewPanel = PreviewPanel() }
+
+                self.previewPanel?.show(
+                    for: app, windows: readyItems, nearDockRect: dockItem.rect
+                ) { [weak self] element, app in
+                    self?.previewPanel?.dismiss()
+                    self?.windowTracker.setLastActiveWindow(element, for: app)
+                    if self?.windowTracker.restoreAndRaise(element, app: app) == false {
+                        NSSound.beep()
+                    }
+                }
             }
         }
     }

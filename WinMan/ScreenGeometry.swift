@@ -39,6 +39,15 @@ enum ScreenGeometry {
         return distances.min(by: { $0.1 < $1.1 })?.0 ?? .bottom
     }
 
+    /// Width that exactly fits the thumbnail row: 160pt tiles, 8pt spacing,
+    /// 10pt horizontal padding on each side — clamped to the screen.
+    static func previewPanelWidth(windowCount: Int, screenWidth: CGFloat) -> CGFloat {
+        let contentWidth = CGFloat(windowCount) * 160
+            + CGFloat(max(0, windowCount - 1)) * 8
+            + 20
+        return min(contentWidth, min(760, max(200, screenWidth - 16)))
+    }
+
     static func previewFrame(
         panelSize: CGSize,
         dockRect: CGRect,

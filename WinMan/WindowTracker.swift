@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import os
 
 // Private AX API to get CGWindowID from AXUIElement — widely used by Rectangle, Hammerspoon, etc.
 @_silgen_name("_AXUIElementGetWindow")
@@ -36,9 +37,13 @@ class WindowTracker {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             if let window = self?.currentFocusedWindow(for: app) {
                 self?.lastActiveWindows[bundleID] = window
-                print("[WindowTracker] Tracked window for \(app.localizedName ?? bundleID)")
+                WinManLog.tracker.debug("Tracked window for \(app.localizedName ?? bundleID, privacy: .public)")
             }
         }
+    }
+
+    deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
     @objc private func appTerminated(_ notification: Notification) {
@@ -101,20 +106,24 @@ class WindowTracker {
             return wid
         }
 
+        // Resolve each window's CGWindowID once — _AXUIElementGetWindow is an
+        // out-of-process round trip, so avoid repeating it per comparison.
+        let axPairs: [(element: AXUIElement, id: CGWindowID?)] =
+            axWindows.map { ($0, windowID($0)) }
+
+        var usedIndices = Set<Int>()
         var result: [AXUIElement] = []
         // First: visible windows in Z-order
         for wid in orderedIDs {
-            if let ax = axWindows.first(where: { windowID($0) == wid }),
-               !result.contains(where: { isSameWindow($0, ax) }) {
-                result.append(ax)
-            }
+            guard let index = axPairs.firstIndex(where: { $0.id == wid }),
+                  !usedIndices.contains(index) else { continue }
+            usedIndices.insert(index)
+            result.append(axPairs[index].element)
         }
         // Then append every remaining AX window. This preserves windows that do
         // not expose a CGWindowID, which is common in some Electron applications.
-        for ax in axWindows {
-            if !result.contains(where: { isSameWindow($0, ax) }) {
-                result.append(ax)
-            }
+        for (index, pair) in axPairs.enumerated() where !usedIndices.contains(index) {
+            result.append(pair.element)
         }
         return result
     }
@@ -123,24 +132,30 @@ class WindowTracker {
     func allWindows(for app: NSRunningApplication) -> [AXUIElement] {
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         var windows: [AXUIElement] = []
+        // Dedupe by CGWindowID resolved once per window; CFEqual is only the
+        // fallback for windows that expose no ID.
+        var seenIDs = Set<CGWindowID>()
+
+        func appendIfNew(_ window: AXUIElement) {
+            if let wid = windowID(window) {
+                guard seenIDs.insert(wid).inserted else { return }
+            } else if windows.contains(where: { CFEqual($0, window) }) {
+                return
+            }
+            windows.append(window)
+        }
 
         var result: CFTypeRef?
         if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &result) == .success,
            let list = result as? [AXUIElement] {
-            for window in list where !windows.contains(where: { isSameWindow($0, window) }) {
-                windows.append(window)
-            }
+            list.forEach(appendIfNew)
         }
 
         // Also get minimized windows (not always in kAXWindowsAttribute on macOS 14+)
         var minResult: CFTypeRef?
         if AXUIElementCopyAttributeValue(axApp, kAXMinimizedWindowsAttribute, &minResult) == .success,
            let minList = minResult as? [AXUIElement] {
-            for window in minList {
-                if !windows.contains(where: { isSameWindow($0, window) }) {
-                    windows.append(window)
-                }
-            }
+            minList.forEach(appendIfNew)
         }
 
         return windows

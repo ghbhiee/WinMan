@@ -7,6 +7,9 @@ struct ScreenGeometryTests {
         testScreenSelection()
         testPreviewPlacement()
         testPreviewBridge()
+        testDockEdge()
+        testPanelWidth()
+        testPlacementClamping()
         print("ScreenGeometryTests passed")
     }
 
@@ -76,6 +79,42 @@ struct ScreenGeometryTests {
             dockRect: dock,
             panelRect: panel
         ))
+    }
+
+    private static func testDockEdge() {
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        expect(ScreenGeometry.dockEdge(
+            for: CGRect(x: 500, y: 0, width: 64, height: 64), in: screen
+        ) == .bottom)
+        expect(ScreenGeometry.dockEdge(
+            for: CGRect(x: 1856, y: 400, width: 64, height: 64), in: screen
+        ) == .right)
+        expect(ScreenGeometry.dockEdge(
+            for: CGRect(x: 0, y: 400, width: 64, height: 64), in: screen
+        ) == .left)
+    }
+
+    private static func testPanelWidth() {
+        // 2 windows: 2*160 + 8 spacing + 20 padding
+        expect(ScreenGeometry.previewPanelWidth(windowCount: 2, screenWidth: 1920) == 348)
+        // Wide dock never exceeds the 760 cap
+        expect(ScreenGeometry.previewPanelWidth(windowCount: 10, screenWidth: 1920) == 760)
+        // Narrow screen clamps to screen width minus margin
+        expect(ScreenGeometry.previewPanelWidth(windowCount: 4, screenWidth: 640) == 624)
+    }
+
+    private static func testPlacementClamping() {
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let panelSize = CGSize(width: 400, height: 200)
+
+        // Dock item at the far left corner — panel must stay on screen
+        let frame = ScreenGeometry.previewFrame(
+            panelSize: panelSize,
+            dockRect: CGRect(x: 0, y: 0, width: 64, height: 64),
+            screenFrame: screen
+        )
+        expect(screen.contains(frame))
+        expect(frame.origin.x >= screen.minX)
     }
 
     private static func expect(

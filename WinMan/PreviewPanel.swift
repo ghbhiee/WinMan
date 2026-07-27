@@ -8,6 +8,7 @@ struct WindowPreviewItem: Identifiable {
     let title: String
     var thumbnail: NSImage?
     var isMinimized: Bool
+    var windowID: CGWindowID?
 }
 
 class PreviewPanel: NSPanel {
@@ -46,9 +47,9 @@ class PreviewPanel: NSPanel {
             screenFrames: screenFrames
         ) else { return }
 
-        let panelWidth = min(
-            CGFloat(windows.count) * 180 + 20,
-            min(760, max(200, screenFrame.width - 16))
+        let panelWidth = ScreenGeometry.previewPanelWidth(
+            windowCount: windows.count,
+            screenWidth: screenFrame.width
         )
         let panelSize = CGSize(width: panelWidth, height: 200)
         let frame = ScreenGeometry.previewFrame(

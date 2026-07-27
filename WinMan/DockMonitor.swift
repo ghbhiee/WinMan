@@ -1,5 +1,6 @@
 import Cocoa
 import Combine
+import os
 
 struct DockItem: Equatable {
     let rect: NSRect
@@ -18,6 +19,17 @@ class DockMonitor: ObservableObject {
     private var isFetching = false
     private var lastRefreshStartedAt = Date.distantPast
 
+    // Union of all dock item rects, generously expanded — cheap "is the pointer
+    // anywhere near the Dock" test recomputed whenever items change.
+    private var expandedDockBounds = CGRect.null
+
+    private let fetchQueue = DispatchQueue(label: "com.winman.dock-fetch", qos: .userInitiated)
+    private var compiledScript: NSAppleScript?
+
+    deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
+
     func startObserving() {
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(self, selector: #selector(dockChanged), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
@@ -31,7 +43,12 @@ class DockMonitor: ObservableObject {
         sync(force: true)
     }
 
-    func refreshIfNeeded(maxAge: TimeInterval = 2.0) {
+    /// Called on every pointer move. Runs the System Events script frequently
+    /// only while the pointer is near the Dock; elsewhere a slow fallback keeps
+    /// stale coordinates from surviving a Dock move indefinitely.
+    func refreshIfNeeded(near location: CGPoint) {
+        let nearDock = items.isEmpty || expandedDockBounds.contains(location)
+        let maxAge: TimeInterval = nearDock ? 2.0 : 20.0
         sync(force: Date().timeIntervalSince(lastRefreshStartedAt) >= maxAge)
     }
 
@@ -54,13 +71,16 @@ class DockMonitor: ObservableObject {
                 switch result {
                 case .success(let items):
                     self.items = items
+                    self.expandedDockBounds = items
+                        .reduce(CGRect.null) { $0.union($1.rect) }
+                        .insetBy(dx: -200, dy: -200)
                     self.isAvailable = true
                     self.lastError = nil
-                    print("[DockMonitor] Updated \(items.count) dock items")
+                    WinManLog.dock.debug("Updated \(items.count) dock items")
                 case .failure(let error):
                     self.isAvailable = false
                     self.lastError = error.localizedDescription
-                    print("[DockMonitor] \(error.localizedDescription)")
+                    WinManLog.dock.error("\(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -69,26 +89,31 @@ class DockMonitor: ObservableObject {
     private func fetchDockRects(
         completion: @escaping (Result<[DockItem], Error>) -> Void
     ) {
-        DispatchQueue.global(qos: .userInitiated).async {
+        fetchQueue.async { [weak self] in
+            guard let self else { return }
             var dockItems: [DockItem] = []
 
-            let script = """
-            tell application "System Events"
-                set dockItemList to {}
-                tell process "Dock"
-                    set dockElements to every UI element of list 1
-                    repeat with dockElement in dockElements
-                        set dockPosition to position of dockElement
-                        set dockSize to size of dockElement
-                        set appName to name of dockElement
-                        set end of dockItemList to {dockPosition, dockSize, appName}
-                    end repeat
-                    return dockItemList
+            // Compile once and reuse; only ever touched on fetchQueue.
+            if self.compiledScript == nil {
+                let script = """
+                tell application "System Events"
+                    set dockItemList to {}
+                    tell process "Dock"
+                        set dockElements to every UI element of list 1
+                        repeat with dockElement in dockElements
+                            set dockPosition to position of dockElement
+                            set dockSize to size of dockElement
+                            set appName to name of dockElement
+                            set end of dockItemList to {dockPosition, dockSize, appName}
+                        end repeat
+                        return dockItemList
+                    end tell
                 end tell
-            end tell
-            """
+                """
+                self.compiledScript = NSAppleScript(source: script)
+            }
 
-            guard let appleScript = NSAppleScript(source: script) else {
+            guard let appleScript = self.compiledScript else {
                 completion(.failure(DockMonitorError.invalidScript))
                 return
             }
