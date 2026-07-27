@@ -9,7 +9,12 @@ app_name="WinMan"
 app_path="$build_dir/Build/Products/Release/$app_name.app"
 zip_path="$dist_dir/$app_name-$version-universal.zip"
 dmg_path="$dist_dir/$app_name-$version-universal.dmg"
-team_id="${WINMAN_TEAM_ID:-745N3XBC4U}"
+# Default: the local self-made "Hongbo Dev" certificate (10-year validity,
+# stable TCC identity, shared across the author's apps). Override with
+# WINMAN_SIGN_IDENTITY (and WINMAN_TEAM_ID for Apple certificates, e.g. a
+# future Developer ID Application identity).
+sign_identity="${WINMAN_SIGN_IDENTITY:-Hongbo Dev}"
+team_id="${WINMAN_TEAM_ID:-}"
 
 trap 'rm -rf "$build_dir"' EXIT
 
@@ -21,15 +26,10 @@ build_arguments=(
   -derivedDataPath "$build_dir"
   "ARCHS=arm64 x86_64"
   ONLY_ACTIVE_ARCH=NO
+  CODE_SIGN_STYLE=Manual
+  "CODE_SIGN_IDENTITY=$sign_identity"
   "DEVELOPMENT_TEAM=$team_id"
 )
-
-if [[ -n "${WINMAN_SIGN_IDENTITY:-}" ]]; then
-  build_arguments+=(
-    CODE_SIGN_STYLE=Manual
-    "CODE_SIGN_IDENTITY=$WINMAN_SIGN_IDENTITY"
-  )
-fi
 
 xcodebuild "${build_arguments[@]}" build
 
