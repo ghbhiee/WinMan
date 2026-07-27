@@ -28,7 +28,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle("启用 Dock 图标点击切换窗口", isOn: $isToggleEnabled)
+            Toggle(tr("启用 Dock 图标点击切换窗口", "Toggle windows by clicking Dock icons"), isOn: $isToggleEnabled)
                 .onChange(of: isToggleEnabled) { newValue in
                     UserDefaults.standard.set(newValue, forKey: "ToggleEnabled")
                     NotificationCenter.default.post(name: .winManSettingsChanged, object: nil)
@@ -36,7 +36,7 @@ struct ContentView: View {
 
             Divider()
 
-            Toggle("悬停时显示多窗口预览", isOn: $isPreviewEnabled)
+            Toggle(tr("悬停时显示多窗口预览", "Show window previews on hover"), isOn: $isPreviewEnabled)
                 .onChange(of: isPreviewEnabled) { newValue in
                     UserDefaults.standard.set(newValue, forKey: "PreviewEnabled")
                     NotificationCenter.default.post(name: .winManSettingsChanged, object: nil)
@@ -44,7 +44,7 @@ struct ContentView: View {
 
             if isPreviewEnabled {
                 HStack {
-                    Text("悬停延迟：\(hoverDelay, specifier: "%.1f") 秒")
+                    Text(tr("悬停延迟：", "Hover delay: ") + String(format: "%.1f", hoverDelay) + tr(" 秒", " s"))
                         .frame(width: 145, alignment: .leading)
                     Slider(value: $hoverDelay, in: 0.3...3.0, step: 0.1)
                         .onChange(of: hoverDelay) { newValue in
@@ -56,7 +56,7 @@ struct ContentView: View {
 
             Divider()
 
-            Toggle("登录时自动启动 WinMan", isOn: $launchAtLogin)
+            Toggle(tr("登录时自动启动 WinMan", "Launch WinMan at login"), isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { newValue in
                     updateLaunchAtLogin(newValue)
                 }
@@ -70,25 +70,26 @@ struct ContentView: View {
             Divider()
 
             HStack {
-                Text("辅助功能权限")
+                Text(tr("辅助功能权限", "Accessibility permission"))
                 Spacer()
-                Text(accessibilityGranted ? "已授权" : "未授权")
+                Text(accessibilityGranted ? tr("已授权", "Granted") : tr("未授权", "Not granted"))
                     .foregroundColor(accessibilityGranted ? .green : .red)
             }
             .font(.footnote)
 
             HStack {
-                Text("屏幕录制权限（窗口缩略图，可选）")
+                Text(tr("屏幕录制权限（窗口缩略图，可选）", "Screen Recording (thumbnails, optional)"))
                 Spacer()
                 if screenCaptureGranted {
-                    Text("已授权").foregroundColor(.green)
+                    Text(tr("已授权", "Granted")).foregroundColor(.green)
                 } else {
-                    Button("申请") { _ = CGRequestScreenCaptureAccess() }
+                    Button(tr("申请", "Request")) { _ = CGRequestScreenCaptureAccess() }
                 }
             }
             .font(.footnote)
 
-            Text("Dock 读取只需辅助功能权限；Automation 仅用于 Finder 窗口管理。屏幕录制仅用于窗口缩略图，授权后需重新打开 WinMan 生效。")
+            Text(tr("Dock 读取只需辅助功能权限；Automation 仅用于 Finder 窗口管理。屏幕录制仅用于窗口缩略图，授权后需重新打开 WinMan 生效。",
+                    "Reading the Dock needs only Accessibility; Automation is used solely for Finder window management. Screen Recording only powers thumbnails; relaunch WinMan after granting it."))
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.leading)
@@ -100,7 +101,8 @@ struct ContentView: View {
             let status = SMAppService.mainApp.status
             launchAtLogin = status == .enabled || status == .requiresApproval
             if status == .requiresApproval {
-                loginItemMessage = "请在“系统设置 > 通用 > 登录项”中允许 WinMan。"
+                loginItemMessage = tr("请在“系统设置 > 通用 > 登录项”中允许 WinMan。",
+                                      "Please allow WinMan in System Settings > General > Login Items.")
             }
         }
         .onReceive(permissionRefresh) { _ in
@@ -129,7 +131,7 @@ struct ContentView: View {
                 loginItemMessage = nil
             }
         } catch {
-            loginItemMessage = "登录项设置失败：\(error.localizedDescription)"
+            loginItemMessage = tr("登录项设置失败：", "Failed to update login item: ") + error.localizedDescription
         }
     }
 }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 新增首次启动「设置向导」：三项权限（辅助功能/自动化/屏幕录制）实时状态、一键授权/申请，自动化权限用 AEDeterminePermissionToAutomateTarget 被动探测不误触弹窗；菜单栏可随时重新打开，取代原来的单个警告弹窗。
+- 界面全面中英双语：菜单栏、设置、帮助、向导按系统语言自动切换（zh-* 显示中文，其余英文）。
 - 最近活动窗口改为 AXObserver 事件驱动追踪：前台应用焦点/主窗口一变化即刻记录，修复用 Cmd-\`、Mission Control 等键盘途径切换窗口后点击 Dock 图标操作到错误窗口的问题；原有点击探测保留为兜底。
 - Dock 读取从 System Events AppleScript 改为直接 Accessibility API：不再经过 Apple Events，读取 Dock 不再需要 Automation 权限（Automation 现仅 Finder 窗口管理需要）。
 - 通过 Dock 项的 AXURL 解析 bundle ID 精确匹配运行中的应用，取代按本地化显示名猜测；对所有系统语言天然正确（如 访达/Finder、Visual Studio Code/Code），并兼容 Safari 等 Cryptex 路径应用。

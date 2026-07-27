@@ -24,6 +24,8 @@ xcrun swiftc \
   "$project_dir/WinMan/PreviewPanel.swift" \
   "$project_dir/WinMan/WindowTracker.swift" \
   "$project_dir/WinMan/ScreenGeometry.swift" \
+  "$project_dir/WinMan/Localization.swift" \
+  "$project_dir/WinMan/OnboardingView.swift" \
   -framework Cocoa \
   -framework SwiftUI \
   -framework CoreGraphics \

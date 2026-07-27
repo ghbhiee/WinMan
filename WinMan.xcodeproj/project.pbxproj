@@ -15,6 +15,8 @@
 		AA000106 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA000006 /* Assets.xcassets */; };
 		AA000107 /* Accessibility.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA000007 /* Accessibility.framework */; };
 		AA000108 /* ScreenGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000B /* ScreenGeometry.swift */; };
+		AA000109 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000C /* Localization.swift */; };
+		AA00010A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000D /* OnboardingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +31,8 @@
 		AA000009 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA00000A /* WinMan.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WinMan.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA00000B /* ScreenGeometry.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScreenGeometry.swift; sourceTree = "<group>"; };
+		AA00000C /* Localization.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		AA00000D /* OnboardingView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,6 +65,8 @@
 				AA000004 /* PreviewPanel.swift */,
 				AA000005 /* ContentView.swift */,
 				AA00000B /* ScreenGeometry.swift */,
+				AA00000C /* Localization.swift */,
+				AA00000D /* OnboardingView.swift */,
 				AA000006 /* Assets.xcassets */,
 				AA000008 /* WinMan.entitlements */,
 				AA000009 /* Info.plist */,
@@ -159,6 +165,8 @@
 				AA000104 /* PreviewPanel.swift in Sources */,
 				AA000105 /* ContentView.swift in Sources */,
 				AA000108 /* ScreenGeometry.swift in Sources */,
+				AA000109 /* Localization.swift in Sources */,
+				AA00010A /* OnboardingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
