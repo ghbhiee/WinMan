@@ -60,3 +60,19 @@ enum HoverPolicy {
         return isOverPanel ? .stayOnPanel : .leftHoverArea
     }
 }
+
+// MARK: - Option-Tab window switcher
+
+enum SwitcherPolicy {
+    /// Selection when the switcher opens: the *next* window, so a quick
+    /// Option-Tab tap flips to the previous window like Windows Alt-Tab.
+    static func initialIndex(count: Int, reversed: Bool) -> Int {
+        guard count > 1 else { return 0 }
+        return reversed ? count - 1 : 1
+    }
+
+    static func nextIndex(from index: Int, count: Int, reversed: Bool) -> Int {
+        guard count > 0 else { return 0 }
+        return reversed ? (index - 1 + count) % count : (index + 1) % count
+    }
+}

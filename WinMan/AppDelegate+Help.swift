@@ -92,6 +92,8 @@ extension AppDelegate {
         • 应用有多个窗口时，将鼠标停留在 Dock 图标上可显示窗口预览。
         • 点击某个预览可直接恢复并激活对应窗口。
         • 悬停缩略图时右上角出现 ✕，点击可直接关闭该窗口（与 Windows 任务栏一致）。
+        • ⌥Tab 打开全局窗口切换器（含最小化窗口）：按住 ⌥ 连续 Tab 循环，
+          ⇧⌥Tab 反向，松开 ⌥ 切换到所选窗口，Esc 取消。
         • 全屏窗口保留 macOS 原生 Dock 行为，不会被 WinMan 强制最小化。
         """, """
         • Click the frontmost app's Dock icon: minimize its most recent window.
@@ -100,6 +102,9 @@ extension AppDelegate {
         • Click a preview to restore and activate that window.
         • Hover a thumbnail and click the ✕ in its corner to close that window,
           just like the Windows taskbar.
+        • ⌥Tab opens a global window switcher (including minimized windows):
+          keep holding ⌥ and press Tab to cycle, ⇧⌥Tab to go backwards,
+          release ⌥ to switch, Esc to cancel.
         • Full-screen windows keep native macOS Dock behavior.
         """), font: .systemFont(ofSize: 13))
 

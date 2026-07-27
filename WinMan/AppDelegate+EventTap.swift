@@ -29,7 +29,9 @@ extension AppDelegate {
         let eventMask: CGEventMask =
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.rightMouseDown.rawValue) |
-            (1 << CGEventType.mouseMoved.rawValue)
+            (1 << CGEventType.mouseMoved.rawValue) |
+            (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cghidEventTap,
@@ -95,11 +97,54 @@ extension AppDelegate {
                 if suppress { return nil }
             }
             delegate.rememberFrontmostWindowAfterUserClick()
+        case .keyDown:
+            if AppDelegate.handleSwitcherKeyDown(event: event, delegate: delegate) {
+                return nil
+            }
+        case .flagsChanged:
+            // Releasing Option while the switcher is open commits the selection.
+            if delegate.windowSwitcher.isActive, !event.flags.contains(.maskAlternate) {
+                delegate.windowSwitcher.commit()
+            }
         default:
             break
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    // MARK: - Option-Tab switcher keys
+
+    private static let tabKeyCode: Int64 = 48
+    private static let escapeKeyCode: Int64 = 53
+
+    /// Returns true when the key event belongs to the switcher and must be
+    /// swallowed instead of reaching the frontmost app.
+    static func handleSwitcherKeyDown(event: CGEvent, delegate: AppDelegate) -> Bool {
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let reversed = event.flags.contains(.maskShift)
+
+        if delegate.windowSwitcher.isActive {
+            switch keyCode {
+            case tabKeyCode:
+                delegate.windowSwitcher.cycle(reversed: reversed)
+                return true
+            case escapeKeyCode:
+                delegate.windowSwitcher.cancel()
+                return true
+            default:
+                return false
+            }
+        }
+
+        guard delegate.isSwitcherEnabled,
+              keyCode == tabKeyCode,
+              event.flags.contains(.maskAlternate),
+              !event.flags.contains(.maskCommand),
+              !event.flags.contains(.maskControl) else { return false }
+
+        delegate.windowSwitcher.begin(reversed: reversed)
+        return delegate.windowSwitcher.isActive
     }
 
     // MARK: - Click handling

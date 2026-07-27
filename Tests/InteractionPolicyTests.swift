@@ -4,7 +4,23 @@ enum InteractionPolicyTests {
     static func run() {
         testDockClickPolicy()
         testHoverPolicy()
+        testSwitcherPolicy()
         print("InteractionPolicyTests passed")
+    }
+
+    private static func testSwitcherPolicy() {
+        // Opening selects the *next* window so a quick tap flips windows
+        check(SwitcherPolicy.initialIndex(count: 5, reversed: false) == 1)
+        check(SwitcherPolicy.initialIndex(count: 5, reversed: true) == 4)
+        check(SwitcherPolicy.initialIndex(count: 1, reversed: false) == 0)
+        check(SwitcherPolicy.initialIndex(count: 0, reversed: false) == 0)
+
+        // Cycling wraps in both directions
+        check(SwitcherPolicy.nextIndex(from: 1, count: 3, reversed: false) == 2)
+        check(SwitcherPolicy.nextIndex(from: 2, count: 3, reversed: false) == 0)
+        check(SwitcherPolicy.nextIndex(from: 0, count: 3, reversed: true) == 2)
+        check(SwitcherPolicy.nextIndex(from: 2, count: 3, reversed: true) == 1)
+        check(SwitcherPolicy.nextIndex(from: 0, count: 0, reversed: false) == 0)
     }
 
     private static func testDockClickPolicy() {

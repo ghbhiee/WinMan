@@ -52,6 +52,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     let dockMonitor = DockMonitor()
     let windowTracker = WindowTracker()
+    lazy var windowSwitcher = WindowSwitcher(windowTracker: windowTracker)
     var previewPanel: PreviewPanel?
     private var userRequestedQuit = false
     // Internal (not private): these are used by the AppDelegate extensions in
@@ -78,6 +79,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }()
     var isSingleWindowPreviewEnabled: Bool =
         UserDefaults.standard.bool(forKey: "PreviewSingleWindow")
+    var isSwitcherEnabled: Bool = {
+        UserDefaults.standard.object(forKey: "SwitcherEnabled") == nil ? true
+            : UserDefaults.standard.bool(forKey: "SwitcherEnabled")
+    }()
     var hoverDelay: Double = {
         let v = UserDefaults.standard.double(forKey: "HoverDelay")
         return v == 0 ? 1.0 : v
@@ -172,6 +177,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         isToggleEnabled = UserDefaults.standard.bool(forKey: "ToggleEnabled")
         isPreviewEnabled = UserDefaults.standard.bool(forKey: "PreviewEnabled")
         isSingleWindowPreviewEnabled = UserDefaults.standard.bool(forKey: "PreviewSingleWindow")
+        isSwitcherEnabled = UserDefaults.standard.object(forKey: "SwitcherEnabled") == nil ? true
+            : UserDefaults.standard.bool(forKey: "SwitcherEnabled")
         let v = UserDefaults.standard.double(forKey: "HoverDelay")
         hoverDelay = v == 0 ? 1.0 : v
     }

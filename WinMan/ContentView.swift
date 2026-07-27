@@ -18,6 +18,10 @@ struct ContentView: View {
     }()
     @State private var singleWindowPreview =
         UserDefaults.standard.bool(forKey: "PreviewSingleWindow")
+    @State private var switcherEnabled: Bool = {
+        UserDefaults.standard.object(forKey: "SwitcherEnabled") == nil ? true
+            : UserDefaults.standard.bool(forKey: "SwitcherEnabled")
+    }()
     @State private var launchAtLogin: Bool = {
         let status = SMAppService.mainApp.status
         return status == .enabled || status == .requiresApproval
@@ -64,6 +68,14 @@ struct ContentView: View {
 
             Divider()
 
+            Toggle(tr("⌥Tab 全局窗口切换（含最小化窗口）", "⌥Tab window switcher (incl. minimized)"), isOn: $switcherEnabled)
+                .onChange(of: switcherEnabled) { newValue in
+                    UserDefaults.standard.set(newValue, forKey: "SwitcherEnabled")
+                    NotificationCenter.default.post(name: .winManSettingsChanged, object: nil)
+                }
+
+            Divider()
+
             Toggle(tr("登录时自动启动 WinMan", "Launch WinMan at login"), isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { newValue in
                     updateLaunchAtLogin(newValue)
@@ -103,7 +115,7 @@ struct ContentView: View {
                 .multilineTextAlignment(.leading)
         }
         .padding()
-        .frame(width: 390, height: isPreviewEnabled ? 390 : 320)
+        .frame(width: 390, height: isPreviewEnabled ? 440 : 370)
         .onAppear {
             refreshPermissionStatus()
             let status = SMAppService.mainApp.status

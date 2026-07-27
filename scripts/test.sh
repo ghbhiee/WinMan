@@ -32,6 +32,7 @@ xcrun swiftc \
   "$project_dir/WinMan/AppDelegate+EventTap.swift" \
   "$project_dir/WinMan/AppDelegate+HoverPreview.swift" \
   "$project_dir/WinMan/AppDelegate+Help.swift" \
+  "$project_dir/WinMan/WindowSwitcher.swift" \
   -framework Cocoa \
   -framework SwiftUI \
   -framework CoreGraphics \
