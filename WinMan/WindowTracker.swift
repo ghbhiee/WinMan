@@ -14,6 +14,18 @@ class WindowTracker {
     // bundleID → last focused window element
     private var lastActiveWindows: [String: AXUIElement] = [:]
 
+    // AXObserver on the frontmost app: the system pushes focus changes to us
+    // the moment they happen, covering keyboard switching (Cmd-`), Mission
+    // Control, and window clicks — paths the click-probe fallback misses.
+    private var focusObserver: AXObserver?
+    private var observedAppElement: AXUIElement?
+    private var observedPID: pid_t = -1
+    private var observedBundleID: String?
+    private static let focusNotifications: [CFString] = [
+        kAXFocusedWindowChangedNotification as CFString,
+        kAXMainWindowChangedNotification as CFString,
+    ]
+
     func startTracking() {
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
@@ -27,13 +39,20 @@ class WindowTracker {
             name: NSWorkspace.didTerminateApplicationNotification,
             object: nil
         )
+        if let front = NSWorkspace.shared.frontmostApplication {
+            observeFocus(of: front)
+        }
     }
 
     @objc private func appActivated(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               let bundleID = app.bundleIdentifier else { return }
 
-        // Small delay: kAXFocusedWindowAttribute may not be set yet right at activation
+        observeFocus(of: app)
+
+        // Initial read at activation — the observer only reports changes that
+        // happen after registration. Small delay: kAXFocusedWindowAttribute
+        // may not be set yet right at activation.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             if let window = self?.currentFocusedWindow(for: app) {
                 self?.lastActiveWindows[bundleID] = window
@@ -44,12 +63,79 @@ class WindowTracker {
 
     deinit {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        removeFocusObserver()
     }
 
     @objc private func appTerminated(_ notification: Notification) {
-        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              let bundleID = app.bundleIdentifier else { return }
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        if app.processIdentifier == observedPID {
+            removeFocusObserver()
+        }
+        guard let bundleID = app.bundleIdentifier else { return }
         lastActiveWindows.removeValue(forKey: bundleID)
+    }
+
+    // MARK: - Focus observation
+
+    private func observeFocus(of app: NSRunningApplication) {
+        let pid = app.processIdentifier
+        guard pid != observedPID else { return }
+        removeFocusObserver()
+
+        guard AXIsProcessTrusted(), let bundleID = app.bundleIdentifier else { return }
+
+        var created: AXObserver?
+        let callback: AXObserverCallback = { _, element, _, refcon in
+            guard let refcon else { return }
+            Unmanaged<WindowTracker>.fromOpaque(refcon)
+                .takeUnretainedValue()
+                .handleFocusChange(window: element)
+        }
+        guard AXObserverCreate(pid, callback, &created) == .success, let observer = created else {
+            WinManLog.tracker.debug("AXObserverCreate failed for pid \(pid)")
+            return
+        }
+
+        let appElement = AXUIElementCreateApplication(pid)
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        var registered = false
+        for notification in Self.focusNotifications {
+            if AXObserverAddNotification(observer, appElement, notification, refcon) == .success {
+                registered = true
+            }
+        }
+        // Some apps expose no AX notifications at all; leave observedPID unset
+        // so the next activation retries (also covers permission granted late).
+        guard registered else { return }
+
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        focusObserver = observer
+        observedAppElement = appElement
+        observedPID = pid
+        observedBundleID = bundleID
+    }
+
+    private func removeFocusObserver() {
+        if let observer = focusObserver {
+            if let appElement = observedAppElement {
+                for notification in Self.focusNotifications {
+                    AXObserverRemoveNotification(observer, appElement, notification)
+                }
+            }
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        }
+        focusObserver = nil
+        observedAppElement = nil
+        observedPID = -1
+        observedBundleID = nil
+    }
+
+    /// Called on the main run loop whenever the observed app's focused or main
+    /// window changes; `window` is the window element that gained focus.
+    private func handleFocusChange(window: AXUIElement) {
+        guard let bundleID = observedBundleID else { return }
+        lastActiveWindows[bundleID] = window
+        WinManLog.tracker.debug("Focus change tracked for \(bundleID, privacy: .public)")
     }
 
     func lastActiveWindow(for app: NSRunningApplication) -> AXUIElement? {

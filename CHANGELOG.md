@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 最近活动窗口改为 AXObserver 事件驱动追踪：前台应用焦点/主窗口一变化即刻记录，修复用 Cmd-\`、Mission Control 等键盘途径切换窗口后点击 Dock 图标操作到错误窗口的问题；原有点击探测保留为兜底。
 - Dock 读取从 System Events AppleScript 改为直接 Accessibility API：不再经过 Apple Events，读取 Dock 不再需要 Automation 权限（Automation 现仅 Finder 窗口管理需要）。
 - 通过 Dock 项的 AXURL 解析 bundle ID 精确匹配运行中的应用，取代按本地化显示名猜测；对所有系统语言天然正确（如 访达/Finder、Visual Studio Code/Code），并兼容 Safari 等 Cryptex 路径应用。
 - 按 subrole 过滤 Dock 项：文件夹、废纸篓、分隔符点击保持原生行为，不再依赖英文名单。
