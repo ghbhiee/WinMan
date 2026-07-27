@@ -11,6 +11,7 @@ struct ScreenGeometryTests {
         testPanelWidth()
         testPlacementClamping()
         print("ScreenGeometryTests passed")
+        InteractionPolicyTests.run()
     }
 
     private static func testQuartzConversion() {

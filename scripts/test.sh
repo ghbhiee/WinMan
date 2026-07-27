@@ -7,7 +7,9 @@ trap 'rm -rf "$test_dir"' EXIT
 
 xcrun swiftc \
   "$project_dir/WinMan/ScreenGeometry.swift" \
+  "$project_dir/WinMan/InteractionPolicy.swift" \
   "$project_dir/Tests/ScreenGeometryTests.swift" \
+  "$project_dir/Tests/InteractionPolicyTests.swift" \
   -framework Cocoa \
   -o "$test_dir/ScreenGeometryTests"
 
@@ -26,6 +28,10 @@ xcrun swiftc \
   "$project_dir/WinMan/ScreenGeometry.swift" \
   "$project_dir/WinMan/Localization.swift" \
   "$project_dir/WinMan/OnboardingView.swift" \
+  "$project_dir/WinMan/InteractionPolicy.swift" \
+  "$project_dir/WinMan/AppDelegate+EventTap.swift" \
+  "$project_dir/WinMan/AppDelegate+HoverPreview.swift" \
+  "$project_dir/WinMan/AppDelegate+Help.swift" \
   -framework Cocoa \
   -framework SwiftUI \
   -framework CoreGraphics \

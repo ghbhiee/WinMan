@@ -17,6 +17,10 @@
 		AA000108 /* ScreenGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000B /* ScreenGeometry.swift */; };
 		AA000109 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000C /* Localization.swift */; };
 		AA00010A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000D /* OnboardingView.swift */; };
+		AA00010B /* InteractionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000E /* InteractionPolicy.swift */; };
+		AA00010C /* AppDelegate+EventTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000F /* AppDelegate+EventTap.swift */; };
+		AA00010D /* AppDelegate+HoverPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000010 /* AppDelegate+HoverPreview.swift */; };
+		AA00010E /* AppDelegate+Help.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000011 /* AppDelegate+Help.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +37,10 @@
 		AA00000B /* ScreenGeometry.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScreenGeometry.swift; sourceTree = "<group>"; };
 		AA00000C /* Localization.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		AA00000D /* OnboardingView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		AA00000E /* InteractionPolicy.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = InteractionPolicy.swift; sourceTree = "<group>"; };
+		AA00000F /* AppDelegate+EventTap.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "AppDelegate+EventTap.swift"; sourceTree = "<group>"; };
+		AA000010 /* AppDelegate+HoverPreview.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "AppDelegate+HoverPreview.swift"; sourceTree = "<group>"; };
+		AA000011 /* AppDelegate+Help.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Help.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -67,6 +75,10 @@
 				AA00000B /* ScreenGeometry.swift */,
 				AA00000C /* Localization.swift */,
 				AA00000D /* OnboardingView.swift */,
+				AA00000E /* InteractionPolicy.swift */,
+				AA00000F /* AppDelegate+EventTap.swift */,
+				AA000010 /* AppDelegate+HoverPreview.swift */,
+				AA000011 /* AppDelegate+Help.swift */,
 				AA000006 /* Assets.xcassets */,
 				AA000008 /* WinMan.entitlements */,
 				AA000009 /* Info.plist */,
@@ -167,6 +179,10 @@
 				AA000108 /* ScreenGeometry.swift in Sources */,
 				AA000109 /* Localization.swift in Sources */,
 				AA00010A /* OnboardingView.swift in Sources */,
+				AA00010B /* InteractionPolicy.swift in Sources */,
+				AA00010C /* AppDelegate+EventTap.swift in Sources */,
+				AA00010D /* AppDelegate+HoverPreview.swift in Sources */,
+				AA00010E /* AppDelegate+Help.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
