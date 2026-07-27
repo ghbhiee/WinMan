@@ -281,6 +281,16 @@ class WindowTracker {
         ) == .success
     }
 
+    /// Closes a window by pressing its close button — equivalent to the user
+    /// clicking the red button, so "are you sure" sheets still appear.
+    @discardableResult
+    func closeWindow(_ window: AXUIElement) -> Bool {
+        var button: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &button) == .success,
+              let button else { return false }
+        return AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString) == .success
+    }
+
     @discardableResult
     func restoreAndRaise(_ window: AXUIElement, app: NSRunningApplication) -> Bool {
         let restoreResult = AXUIElementSetAttributeValue(

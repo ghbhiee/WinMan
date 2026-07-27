@@ -32,7 +32,8 @@ class PreviewPanel: NSPanel {
         for app: NSRunningApplication,
         windows: [WindowPreviewItem],
         nearDockRect dockRect: NSRect,
-        onSelect: @escaping (AXUIElement, NSRunningApplication) -> Void
+        onSelect: @escaping (AXUIElement, NSRunningApplication) -> Void,
+        onCloseWindow: @escaping (WindowPreviewItem) -> Void
     ) {
         let screens = NSScreen.screens
         guard let primaryScreenFrame = screens.first?.frame else { return }
@@ -63,7 +64,8 @@ class PreviewPanel: NSPanel {
             windows: windows,
             appIcon: app.icon,
             onSelect: { element in onSelect(element, app) },
-            onClose: { [weak self] in self?.dismiss() }
+            onClose: { [weak self] in self?.dismiss() },
+            onCloseWindow: onCloseWindow
         )
 
         if let hv = hostingView {
@@ -91,14 +93,19 @@ struct PreviewPanelView: View {
     let appIcon: NSImage?
     let onSelect: (AXUIElement) -> Void
     let onClose: () -> Void
+    let onCloseWindow: (WindowPreviewItem) -> Void
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(windows) { item in
-                        WindowThumbnailView(item: item, appIcon: appIcon)
-                            .onTapGesture { onSelect(item.element) }
+                        WindowThumbnailView(
+                            item: item,
+                            appIcon: appIcon,
+                            onCloseWindow: { onCloseWindow(item) }
+                        )
+                        .onTapGesture { onSelect(item.element) }
                     }
                 }
                 .padding(.horizontal, 10)
@@ -130,11 +137,12 @@ struct PreviewPanelView: View {
 struct WindowThumbnailView: View {
     let item: WindowPreviewItem
     let appIcon: NSImage?
+    let onCloseWindow: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         VStack(spacing: 4) {
-            ZStack {
+            ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isHovered
                           ? Color.accentColor.opacity(0.25)
@@ -157,9 +165,22 @@ struct WindowThumbnailView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 56, height: 56)
                         .opacity(0.45)
+                        .frame(width: 160, height: 120)
                 }
 
-
+                // Windows-taskbar-style per-window close button, hover-revealed
+                if isHovered {
+                    Button(action: onCloseWindow) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 15))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .red.opacity(0.85))
+                            .shadow(radius: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(4)
+                    .help(tr("关闭窗口", "Close window"))
+                }
             }
             .scaleEffect(isHovered ? 1.03 : 1.0)
             .animation(.easeInOut(duration: 0.12), value: isHovered)

@@ -74,6 +74,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         UserDefaults.standard.object(forKey: "PreviewEnabled") == nil ? true
             : UserDefaults.standard.bool(forKey: "PreviewEnabled")
     }()
+    var isSingleWindowPreviewEnabled: Bool =
+        UserDefaults.standard.bool(forKey: "PreviewSingleWindow")
     var hoverDelay: Double = {
         let v = UserDefaults.standard.double(forKey: "HoverDelay")
         return v == 0 ? 1.0 : v
@@ -167,6 +169,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func settingsChanged() {
         isToggleEnabled = UserDefaults.standard.bool(forKey: "ToggleEnabled")
         isPreviewEnabled = UserDefaults.standard.bool(forKey: "PreviewEnabled")
+        isSingleWindowPreviewEnabled = UserDefaults.standard.bool(forKey: "PreviewSingleWindow")
         let v = UserDefaults.standard.double(forKey: "HoverDelay")
         hoverDelay = v == 0 ? 1.0 : v
     }
@@ -280,12 +283,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         • 再次点击该图标：恢复上次活动或最小化的窗口。
         • 应用有多个窗口时，将鼠标停留在 Dock 图标上可显示窗口预览。
         • 点击某个预览可直接恢复并激活对应窗口。
+        • 悬停缩略图时右上角出现 ✕，点击可直接关闭该窗口（与 Windows 任务栏一致）。
         • 全屏窗口保留 macOS 原生 Dock 行为，不会被 WinMan 强制最小化。
         """, """
         • Click the frontmost app's Dock icon: minimize its most recent window.
         • Click the icon again: restore the last active or minimized window.
         • Hover over an app with multiple windows to show clickable previews.
         • Click a preview to restore and activate that window.
+        • Hover a thumbnail and click the ✕ in its corner to close that window,
+          just like the Windows taskbar.
         • Full-screen windows keep native macOS Dock behavior.
         """), font: .systemFont(ofSize: 13))
 
@@ -319,12 +325,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         section(tr("设置", "Settings"))
         append(tr("""
-        可单独关闭 Dock 点击切换或悬停预览，也可以调整悬停延迟。
+        可单独关闭 Dock 点击切换或悬停预览，也可以调整悬停延迟，
+        还可以选择只有一个窗口时也显示预览。
         “登录时自动启动”由用户自行开启，WinMan 不再在每次启动时强制注册登录项。
         """, """
         Dock click toggling and hover previews can be disabled independently,
-        and the hover delay is adjustable. "Launch at login" is entirely
-        user-controlled.
+        the hover delay is adjustable, and previews can optionally appear even
+        for a single window. "Launch at login" is entirely user-controlled.
         """), font: .systemFont(ofSize: 13))
 
         section(tr("故障排查", "Troubleshooting"))
@@ -721,7 +728,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Put the tracked active window first, then fall back to system Z-order.
         let axWindows = windowTracker.windowsInInteractionOrder(for: app)
-        guard axWindows.count >= 2 else { return }
+        guard axWindows.count >= minimumPreviewWindowCount else { return }
 
         // Collect metadata on the main thread; window imaging happens off it so
         // the event tap callback is never blocked by slow captures.
@@ -768,14 +775,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if self.previewPanel == nil { self.previewPanel = PreviewPanel() }
 
                 self.previewPanel?.show(
-                    for: app, windows: readyItems, nearDockRect: dockItem.rect
-                ) { [weak self] element, app in
-                    self?.previewPanel?.dismiss()
-                    self?.windowTracker.setLastActiveWindow(element, for: app)
-                    if self?.windowTracker.restoreAndRaise(element, app: app) == false {
-                        NSSound.beep()
+                    for: app, windows: readyItems, nearDockRect: dockItem.rect,
+                    onSelect: { [weak self] element, app in
+                        self?.previewPanel?.dismiss()
+                        self?.windowTracker.setLastActiveWindow(element, for: app)
+                        if self?.windowTracker.restoreAndRaise(element, app: app) == false {
+                            NSSound.beep()
+                        }
+                    },
+                    onCloseWindow: { [weak self] item in
+                        self?.closeWindowFromPreview(item, app: app, dockItem: dockItem)
                     }
-                }
+                )
+            }
+        }
+    }
+
+    private var minimumPreviewWindowCount: Int {
+        isSingleWindowPreviewEnabled ? 1 : 2
+    }
+
+    /// Close a window from its preview thumbnail, then refresh the panel with
+    /// the surviving windows (or dismiss it when too few remain).
+    private func closeWindowFromPreview(_ item: WindowPreviewItem, app: NSRunningApplication, dockItem: DockItem) {
+        guard windowTracker.closeWindow(item.element) else {
+            NSSound.beep()
+            return
+        }
+        // Give the app a moment to tear the window down before re-enumerating.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            let remaining = self.windowTracker.windowsInInteractionOrder(for: app)
+            if remaining.count >= self.minimumPreviewWindowCount {
+                self.showPreview(for: dockItem)
+            } else {
+                self.previewPanel?.dismiss()
             }
         }
     }

@@ -16,6 +16,8 @@ struct ContentView: View {
         let v = UserDefaults.standard.double(forKey: "HoverDelay")
         return v == 0 ? 1.0 : v
     }()
+    @State private var singleWindowPreview =
+        UserDefaults.standard.bool(forKey: "PreviewSingleWindow")
     @State private var launchAtLogin: Bool = {
         let status = SMAppService.mainApp.status
         return status == .enabled || status == .requiresApproval
@@ -52,6 +54,12 @@ struct ContentView: View {
                             NotificationCenter.default.post(name: .winManSettingsChanged, object: nil)
                         }
                 }
+
+                Toggle(tr("只有一个窗口时也显示预览", "Preview even for a single window"), isOn: $singleWindowPreview)
+                    .onChange(of: singleWindowPreview) { newValue in
+                        UserDefaults.standard.set(newValue, forKey: "PreviewSingleWindow")
+                        NotificationCenter.default.post(name: .winManSettingsChanged, object: nil)
+                    }
             }
 
             Divider()
@@ -95,7 +103,7 @@ struct ContentView: View {
                 .multilineTextAlignment(.leading)
         }
         .padding()
-        .frame(width: 390, height: isPreviewEnabled ? 360 : 320)
+        .frame(width: 390, height: isPreviewEnabled ? 390 : 320)
         .onAppear {
             refreshPermissionStatus()
             let status = SMAppService.mainApp.status
