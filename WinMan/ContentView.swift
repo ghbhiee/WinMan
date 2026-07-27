@@ -88,7 +88,7 @@ struct ContentView: View {
             }
             .font(.footnote)
 
-            Text("Automation 用于读取 Dock，屏幕录制仅用于窗口缩略图，授权后需重新打开 WinMan 生效。可通过菜单栏打开对应的系统设置。")
+            Text("Dock 读取只需辅助功能权限；Automation 仅用于 Finder 窗口管理。屏幕录制仅用于窗口缩略图，授权后需重新打开 WinMan 生效。")
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.leading)

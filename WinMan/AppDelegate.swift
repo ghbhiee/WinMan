@@ -97,8 +97,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     ]
 
 
-    // Apps with dock icons that don't map to a toggleable window
-    let skippedApps: Set<String> = ["Launchpad", "Trash", "Downloads"]
+    // Apps with dock icons that don't map to a toggleable window.
+    // Non-application dock items (folders, Trash, separators) are already
+    // filtered by subrole; these cover apps that have no toggleable window.
+    let skippedApps: Set<String> = ["Launchpad", "启动台", "Trash", "Downloads"]
+    let skippedBundleIDs: Set<String> = ["com.apple.launchpad.launcher"]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -283,8 +286,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         section("权限")
         append("""
-        • 辅助功能：必须，用于读取和改变窗口状态。
-        • 自动化：必须，用于通过 System Events 读取 Dock 和管理 Finder。
+        • 辅助功能：必须，用于读取 Dock 图标位置以及读取和改变窗口状态。
+        • 自动化：仅 Finder 窗口管理需要（System Events）；其余功能不再依赖。
         • 屏幕录制：可选，仅用于显示实时窗口缩略图；拒绝后仍可使用窗口切换。
 
         如果点击没有反应，请先在菜单中打开对应的系统设置并确认 WinMan 已授权。
@@ -431,11 +434,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static func handleClick(location: CGPoint, delegate: AppDelegate) -> Bool {
         for dockItem in delegate.dockMonitor.items {
             guard dockItem.rect.contains(location) else { continue }
+            // Folders, the Trash, and separators keep native Dock behavior.
+            guard dockItem.isApplication else { return false }
             guard !delegate.skippedApps.contains(dockItem.name) else { return false }
+            if let bundleID = dockItem.bundleID,
+               delegate.skippedBundleIDs.contains(bundleID) { return false }
             guard AXIsProcessTrusted() else { return false }
 
             let apps = NSWorkspace.shared.runningApplications
-            guard let app = apps.first(where: { delegate.matches(app: $0, dockName: dockItem.name) }) else {
+            guard let app = apps.first(where: { delegate.matches(app: $0, dockItem: dockItem) }) else {
                 WinManLog.app.debug("No running app for: \(dockItem.name, privacy: .public)")
                 return false
             }
@@ -585,7 +592,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             delegate.dismissPreviewTimer?.invalidate()
             delegate.dismissPreviewTimer = nil
 
-            if delegate.hoveredDockItem?.name != dockItem.name {
+            if delegate.hoveredDockItem?.identity != dockItem.identity {
                 // Moved to a different dock item — dismiss previous panel and restart timer
                 delegate.hoverTimer?.invalidate()
                 delegate.previewPanel?.dismiss()
@@ -648,7 +655,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard isPreviewEnabled else { return }
 
         let apps = NSWorkspace.shared.runningApplications
-        guard let app = apps.first(where: { self.matches(app: $0, dockName: dockItem.name) }) else { return }
+        guard let app = apps.first(where: { self.matches(app: $0, dockItem: dockItem) }) else { return }
 
         // Put the tracked active window first, then fall back to system Z-order.
         let axWindows = windowTracker.windowsInInteractionOrder(for: app)
@@ -693,7 +700,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 guard let self else { return }
                 // The pointer may have moved on while thumbnails were captured.
                 guard self.isPreviewEnabled,
-                      self.hoveredDockItem?.name == dockItem.name,
+                      self.hoveredDockItem?.identity == dockItem.identity,
                       Date() >= self.suppressPreviewUntil else { return }
 
                 if self.previewPanel == nil { self.previewPanel = PreviewPanel() }
@@ -711,7 +718,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    // MARK: - App name matching
+    // MARK: - App matching
+
+    /// Exact match via the dock item's AXURL-derived bundle identity; the
+    /// legacy display-name heuristics only run when the Dock exposes no URL.
+    func matches(app: NSRunningApplication, dockItem: DockItem) -> Bool {
+        if let bundleID = dockItem.bundleID {
+            return app.bundleIdentifier == bundleID
+        }
+        if let itemURL = dockItem.bundleURL, let appURL = app.bundleURL {
+            return itemURL.standardizedFileURL.path == appURL.standardizedFileURL.path
+        }
+        return matches(app: app, dockName: dockItem.name)
+    }
 
     func matches(app: NSRunningApplication, dockName: String) -> Bool {
         if app.localizedName == dockName { return true }

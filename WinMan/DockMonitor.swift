@@ -1,14 +1,28 @@
 import Cocoa
 import Combine
+import ApplicationServices
 import os
 
 struct DockItem: Equatable {
     let rect: NSRect
     let name: String
+    /// File URL of the app the dock item represents (AXURL); nil for folders,
+    /// the Trash, separators, and items whose URL the Dock does not expose.
+    let bundleURL: URL?
+    /// Resolved from bundleURL — lets clicks match running apps exactly instead
+    /// of guessing from localized display names.
+    let bundleID: String?
+    let subrole: String?
 
-    static func == (lhs: DockItem, rhs: DockItem) -> Bool {
-        return lhs.name == rhs.name && lhs.rect == rhs.rect
+    /// Only application items are click-toggle candidates; folders, the Trash,
+    /// and separators keep native behavior. A missing subrole is treated as an
+    /// application so behavior degrades to the pre-AX matching path.
+    var isApplication: Bool {
+        subrole == nil || subrole == "AXApplicationDockItem"
     }
+
+    /// Stable identity across refreshes, independent of display language.
+    var identity: String { bundleURL?.absoluteString ?? name }
 }
 
 class DockMonitor: ObservableObject {
@@ -24,7 +38,9 @@ class DockMonitor: ObservableObject {
     private var expandedDockBounds = CGRect.null
 
     private let fetchQueue = DispatchQueue(label: "com.winman.dock-fetch", qos: .userInitiated)
-    private var compiledScript: NSAppleScript?
+    // URL → bundle identifier; reading Info.plist once per app is enough.
+    // Only touched on fetchQueue.
+    private var bundleIDCache: [URL: String] = [:]
 
     deinit {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -43,9 +59,9 @@ class DockMonitor: ObservableObject {
         sync(force: true)
     }
 
-    /// Called on every pointer move. Runs the System Events script frequently
-    /// only while the pointer is near the Dock; elsewhere a slow fallback keeps
-    /// stale coordinates from surviving a Dock move indefinitely.
+    /// Called on every pointer move. Reads the Dock frequently only while the
+    /// pointer is near it; elsewhere a slow fallback keeps stale coordinates
+    /// from surviving a Dock move indefinitely.
     func refreshIfNeeded(near location: CGPoint) {
         let nearDock = items.isEmpty || expandedDockBounds.contains(location)
         let maxAge: TimeInterval = nearDock ? 2.0 : 20.0
@@ -86,89 +102,114 @@ class DockMonitor: ObservableObject {
         }
     }
 
+    /// Reads dock items straight from the Dock process's accessibility tree —
+    /// the same data System Events proxies, but without Apple Events, without
+    /// the Automation permission, and with the AXURL attribute that identifies
+    /// each app independent of the display language. Positions are Quartz
+    /// global coordinates, identical to what the AppleScript returned.
     private func fetchDockRects(
         completion: @escaping (Result<[DockItem], Error>) -> Void
     ) {
         fetchQueue.async { [weak self] in
             guard let self else { return }
+
+            guard AXIsProcessTrusted() else {
+                completion(.failure(DockMonitorError.accessibilityDenied))
+                return
+            }
+            guard let dockApp = NSRunningApplication
+                .runningApplications(withBundleIdentifier: "com.apple.dock").first else {
+                completion(.failure(DockMonitorError.dockNotRunning))
+                return
+            }
+
+            let dockElement = AXUIElementCreateApplication(dockApp.processIdentifier)
+            guard let children = Self.attribute(dockElement, kAXChildrenAttribute) as? [AXUIElement],
+                  let list = children.first(where: {
+                      Self.stringAttribute($0, kAXRoleAttribute) == kAXListRole
+                  }),
+                  let itemElements = Self.attribute(list, kAXChildrenAttribute) as? [AXUIElement] else {
+                completion(.failure(DockMonitorError.dockUnreadable))
+                return
+            }
+
             var dockItems: [DockItem] = []
+            for element in itemElements {
+                guard let position = Self.pointAttribute(element, kAXPositionAttribute),
+                      let size = Self.sizeAttribute(element, kAXSizeAttribute),
+                      size.width > 0, size.height > 0 else { continue }
 
-            // Compile once and reuse; only ever touched on fetchQueue.
-            if self.compiledScript == nil {
-                let script = """
-                tell application "System Events"
-                    set dockItemList to {}
-                    tell process "Dock"
-                        set dockElements to every UI element of list 1
-                        repeat with dockElement in dockElements
-                            set dockPosition to position of dockElement
-                            set dockSize to size of dockElement
-                            set appName to name of dockElement
-                            set end of dockItemList to {dockPosition, dockSize, appName}
-                        end repeat
-                        return dockItemList
-                    end tell
-                end tell
-                """
-                self.compiledScript = NSAppleScript(source: script)
-            }
+                let name = Self.stringAttribute(element, kAXTitleAttribute) ?? "Unknown"
+                let subrole = Self.stringAttribute(element, kAXSubroleAttribute)
+                let url = Self.attribute(element, kAXURLAttribute) as? URL
 
-            guard let appleScript = self.compiledScript else {
-                completion(.failure(DockMonitorError.invalidScript))
-                return
-            }
-
-            var errorInfo: NSDictionary?
-            let result = appleScript.executeAndReturnError(&errorInfo)
-            if let errorInfo {
-                completion(.failure(DockMonitorError.appleScript(errorInfo.description)))
-                return
-            }
-
-            guard result.descriptorType == typeAEList else {
-                completion(.failure(DockMonitorError.invalidResult))
-                return
-            }
-
-            if result.numberOfItems > 0 {
-                for index in 1...result.numberOfItems {
-                    guard let item = result.atIndex(index),
-                          let posDesc = item.atIndex(1),
-                          let sizeDesc = item.atIndex(2),
-                          let nameDesc = item.atIndex(3) else { continue }
-
-                    let x = posDesc.atIndex(1)?.doubleValue ?? 0
-                    let y = posDesc.atIndex(2)?.doubleValue ?? 0
-                    let width = sizeDesc.atIndex(1)?.doubleValue ?? 0
-                    let height = sizeDesc.atIndex(2)?.doubleValue ?? 0
-                    let name = nameDesc.stringValue ?? "Unknown"
-
-                    guard width > 0, height > 0 else { continue }
-                    dockItems.append(DockItem(
-                        rect: NSRect(x: x, y: y, width: width, height: height),
-                        name: name
-                    ))
+                var bundleID: String?
+                if subrole == "AXApplicationDockItem", let url {
+                    if let cached = self.bundleIDCache[url] {
+                        bundleID = cached
+                    } else if let resolved = Bundle(url: url)?.bundleIdentifier {
+                        bundleID = resolved
+                        self.bundleIDCache[url] = resolved
+                    }
                 }
+
+                dockItems.append(DockItem(
+                    rect: NSRect(origin: position, size: size),
+                    name: name,
+                    bundleURL: url,
+                    bundleID: bundleID,
+                    subrole: subrole
+                ))
             }
 
             completion(.success(dockItems))
         }
     }
+
+    // MARK: - AX attribute helpers
+
+    private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
+            return nil
+        }
+        return value
+    }
+
+    private static func stringAttribute(_ element: AXUIElement, _ name: String) -> String? {
+        attribute(element, name) as? String
+    }
+
+    private static func pointAttribute(_ element: AXUIElement, _ name: String) -> CGPoint? {
+        guard let value = attribute(element, name),
+              CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        guard AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
+        return point
+    }
+
+    private static func sizeAttribute(_ element: AXUIElement, _ name: String) -> CGSize? {
+        guard let value = attribute(element, name),
+              CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var size = CGSize.zero
+        guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
+        return size
+    }
 }
 
 private enum DockMonitorError: LocalizedError {
-    case invalidScript
-    case invalidResult
-    case appleScript(String)
+    case accessibilityDenied
+    case dockNotRunning
+    case dockUnreadable
 
     var errorDescription: String? {
         switch self {
-        case .invalidScript:
-            return "Unable to create the Dock automation script."
-        case .invalidResult:
-            return "System Events returned an invalid Dock item list."
-        case .appleScript(let message):
-            return "Dock automation failed: \(message)"
+        case .accessibilityDenied:
+            return "Accessibility permission is required to read the Dock."
+        case .dockNotRunning:
+            return "The Dock process is not running."
+        case .dockUnreadable:
+            return "The Dock's accessibility tree could not be read."
         }
     }
 }

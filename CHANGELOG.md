@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Dock 读取从 System Events AppleScript 改为直接 Accessibility API：不再经过 Apple Events，读取 Dock 不再需要 Automation 权限（Automation 现仅 Finder 窗口管理需要）。
+- 通过 Dock 项的 AXURL 解析 bundle ID 精确匹配运行中的应用，取代按本地化显示名猜测；对所有系统语言天然正确（如 访达/Finder、Visual Studio Code/Code），并兼容 Safari 等 Cryptex 路径应用。
+- 按 subrole 过滤 Dock 项：文件夹、废纸篓、分隔符点击保持原生行为，不再依赖英文名单。
 - 全局 AX 消息超时（0.25s）：目标应用无响应时不再拖慢 event tap，避免全系统鼠标输入卡顿，超时操作自动放行原生 Dock 点击。
 - 预览缩略图截屏移至后台线程，悬停多窗口时主线程与鼠标事件不再被阻塞。
 - 鼠标远离 Dock 时将 System Events 刷新间隔从 2 秒降频到 20 秒，显著减少 AppleScript 后台开销。
