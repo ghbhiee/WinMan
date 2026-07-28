@@ -119,7 +119,7 @@ WinMan 不上传窗口标题、截图或使用数据，不包含分析服务。�
 
 作者：Guohongbo
 
-联系邮箱：ghbhiee@gmail.com
+联系邮箱：guohongbo@outlook.com
 
 GitHub：[ghbhiee/WinMan](https://github.com/ghbhiee/WinMan)
 

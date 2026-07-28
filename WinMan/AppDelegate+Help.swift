@@ -163,8 +163,8 @@ extension AppDelegate {
         """), font: .systemFont(ofSize: 13))
 
         section(tr("作者与项目", "Author & Project"))
-        append(tr("作者：Guohongbo\n联系：ghbhiee@gmail.com\nGitHub：",
-                  "Author: Guohongbo\nContact: ghbhiee@gmail.com\nGitHub: "),
+        append(tr("作者：Guohongbo\n联系：guohongbo@outlook.com\nGitHub：",
+                  "Author: Guohongbo\nContact: guohongbo@outlook.com\nGitHub: "),
                font: .systemFont(ofSize: 13))
         text.append(NSAttributedString(
             string: githubURL.absoluteString,

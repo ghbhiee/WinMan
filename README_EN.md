@@ -139,7 +139,7 @@ The only network link in the application opens the GitHub project page.
 
 Author: Guohongbo
 
-Contact: ghbhiee@gmail.com
+Contact: guohongbo@outlook.com
 
 GitHub: [ghbhiee/WinMan](https://github.com/ghbhiee/WinMan)
 
