@@ -23,6 +23,7 @@ extension AppDelegate {
         let hitItem = delegate.dockMonitor.items.first(where: { $0.rect.contains(location) })
         let response = HoverPolicy.response(
             hitItemIdentity: hitItem?.identity,
+            hitItemIsManaged: hitItem.map(delegate.isManaged) ?? false,
             hoveredIdentity: delegate.hoveredDockItem?.identity,
             isOverPanel: delegate.isLocationOverPanel(location),
             isSuppressed: Date() < delegate.suppressPreviewUntil
@@ -37,6 +38,9 @@ extension AppDelegate {
         case .beginHover:
             // Moved to a different dock item — dismiss previous panel and restart timer
             guard let dockItem = hitItem else { return }
+            // Like the Windows taskbar: once a preview is up, sliding to the
+            // next icon switches previews immediately instead of re-waiting.
+            let delay = delegate.previewPanel?.isVisible == true ? 0.08 : delegate.hoverDelay
             delegate.dismissPreviewTimer?.invalidate()
             delegate.dismissPreviewTimer = nil
             delegate.hoverTimer?.invalidate()
@@ -44,7 +48,7 @@ extension AppDelegate {
             delegate.hoveredDockItem = dockItem
 
             delegate.hoverTimer = Timer.scheduledTimer(
-                withTimeInterval: delegate.hoverDelay,
+                withTimeInterval: delay,
                 repeats: false
             ) { [weak delegate] _ in
                 guard let delegate = delegate else { return }
@@ -97,13 +101,13 @@ extension AppDelegate {
     }
 
     func showPreview(for dockItem: DockItem) {
-        guard isPreviewEnabled else { return }
+        guard isPreviewEnabled, isManaged(dockItem) else { return }
 
         let apps = NSWorkspace.shared.runningApplications
         guard let app = apps.first(where: { self.matches(app: $0, dockItem: dockItem) }) else { return }
 
         // Put the tracked active window first, then fall back to system Z-order.
-        let axWindows = windowTracker.windowsInInteractionOrder(for: app)
+        let axWindows = windowTracker.standardWindowsInInteractionOrder(for: app)
         guard axWindows.count >= minimumPreviewWindowCount else { return }
 
         // Collect metadata on the main thread; window imaging happens off it so
@@ -153,9 +157,12 @@ extension AppDelegate {
                 self.previewPanel?.show(
                     for: app, windows: readyItems, nearDockRect: dockItem.rect,
                     onSelect: { [weak self] element, app in
-                        self?.previewPanel?.dismiss()
-                        self?.windowTracker.setLastActiveWindow(element, for: app)
-                        if self?.windowTracker.restoreAndRaise(element, app: app) == false {
+                        guard let self else { return }
+                        self.previewPanel?.dismiss()
+                        // Single-view: bring up only the chosen window and pin it.
+                        self.windowTracker.setLastActiveWindow(element, for: app)
+                        self.windowTracker.suppressFocusTracking(for: app)
+                        if !self.windowTracker.focusWindow(element, app: app) {
                             NSSound.beep()
                         }
                     },
@@ -181,7 +188,7 @@ extension AppDelegate {
         // Give the app a moment to tear the window down before re-enumerating.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self else { return }
-            let remaining = self.windowTracker.windowsInInteractionOrder(for: app)
+            let remaining = self.windowTracker.standardWindowsInInteractionOrder(for: app)
             if remaining.count >= self.minimumPreviewWindowCount {
                 self.showPreview(for: dockItem)
             } else {

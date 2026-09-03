@@ -10,9 +10,49 @@ func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: inout CGWindowID)
 private let kAXFullScreenAttribute = "AXFullScreen" as CFString
 private let kAXMinimizedWindowsAttribute = "AXMinimizedWindows" as CFString
 
+/// Private SkyLight entry points that bring ONE window of an app to the front
+/// without the app-level activation that drags every other window of that app
+/// along. Same technique as AltTab and yabai. Resolved with dlsym so a missing
+/// symbol degrades to the public activate() path instead of failing to link.
+private enum SkyLight {
+    typealias SetFrontProcessFn = @convention(c) (
+        UnsafeMutablePointer<ProcessSerialNumber>, CGWindowID, UInt32
+    ) -> CGError
+    typealias PostEventRecordFn = @convention(c) (
+        UnsafeMutablePointer<ProcessSerialNumber>, UnsafeMutablePointer<UInt8>
+    ) -> CGError
+    typealias GetProcessForPIDFn = @convention(c) (
+        pid_t, UnsafeMutablePointer<ProcessSerialNumber>
+    ) -> OSStatus
+
+    static let userGeneratedMode: UInt32 = 0x200  // kCPSUserGenerated
+
+    private static let handle = dlopen(
+        "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW
+    )
+    static let setFrontProcess: SetFrontProcessFn? = load("_SLPSSetFrontProcessWithOptions", from: handle)
+    static let postEventRecord: PostEventRecordFn? = load("SLPSPostEventRecordTo", from: handle)
+    // Deprecated Carbon API, unavailable to Swift by name but still exported.
+    static let getProcessForPID: GetProcessForPIDFn? = load("GetProcessForPID", from: dlopen(nil, RTLD_NOW))
+
+    static var isAvailable: Bool {
+        setFrontProcess != nil && postEventRecord != nil && getProcessForPID != nil
+    }
+
+    private static func load<T>(_ symbol: String, from handle: UnsafeMutableRawPointer?) -> T? {
+        guard let handle, let pointer = dlsym(handle, symbol) else { return nil }
+        return unsafeBitCast(pointer, to: T.self)
+    }
+}
+
 class WindowTracker {
     // bundleID → last focused window element
     private var lastActiveWindows: [String: AXUIElement] = [:]
+
+    // bundleID → deadline. While set, focus notifications from that app are
+    // ignored: minimizing window A makes macOS focus sibling B, and recording
+    // B would make the next Dock click act on the wrong window.
+    private var focusTrackingSuppressedUntil: [String: Date] = [:]
 
     // AXObserver on the frontmost app: the system pushes focus changes to us
     // the moment they happen, covering keyboard switching (Cmd-`), Mission
@@ -54,11 +94,27 @@ class WindowTracker {
         // happen after registration. Small delay: kAXFocusedWindowAttribute
         // may not be set yet right at activation.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            if let window = self?.currentFocusedWindow(for: app) {
-                self?.lastActiveWindows[bundleID] = window
+            guard let self, !self.isFocusTrackingSuppressed(for: bundleID) else { return }
+            if let window = self.currentFocusedWindow(for: app) {
+                self.lastActiveWindows[bundleID] = window
                 WinManLog.tracker.debug("Tracked window for \(app.localizedName ?? bundleID, privacy: .public)")
             }
         }
+    }
+
+    /// Ignore the app's focus notifications for a short while after WinMan
+    /// itself changes its windows, so side-effect focus moves (macOS focusing a
+    /// sibling after a minimize) don't overwrite the window WinMan is managing.
+    func suppressFocusTracking(for app: NSRunningApplication, interval: TimeInterval = 0.8) {
+        guard let bundleID = app.bundleIdentifier else { return }
+        focusTrackingSuppressedUntil[bundleID] = Date().addingTimeInterval(interval)
+    }
+
+    private func isFocusTrackingSuppressed(for bundleID: String) -> Bool {
+        guard let until = focusTrackingSuppressedUntil[bundleID] else { return false }
+        if Date() < until { return true }
+        focusTrackingSuppressedUntil.removeValue(forKey: bundleID)
+        return false
     }
 
     deinit {
@@ -134,6 +190,10 @@ class WindowTracker {
     /// window changes; `window` is the window element that gained focus.
     private func handleFocusChange(window: AXUIElement) {
         guard let bundleID = observedBundleID else { return }
+        guard !isFocusTrackingSuppressed(for: bundleID) else {
+            WinManLog.tracker.debug("Focus change ignored (suppressed) for \(bundleID, privacy: .public)")
+            return
+        }
         lastActiveWindows[bundleID] = window
         WinManLog.tracker.debug("Focus change tracked for \(bundleID, privacy: .public)")
     }
@@ -163,6 +223,29 @@ class WindowTracker {
     func setLastActiveWindow(_ window: AXUIElement, for app: NSRunningApplication) {
         guard let bundleID = app.bundleIdentifier else { return }
         lastActiveWindows[bundleID] = window
+    }
+
+    /// Windows that count as user-facing "views" in single-view mode: real
+    /// standard windows with a CGWindowID. Filters out dialogs, sheets, and
+    /// phantom entries such as Finder's desktop (no ID, no subrole).
+    func standardWindowsInInteractionOrder(for app: NSRunningApplication) -> [AXUIElement] {
+        windowsInInteractionOrder(for: app).filter(isStandardWindow)
+    }
+
+    func isStandardWindow(_ window: AXUIElement) -> Bool {
+        windowID(window) != nil && windowSubrole(window) == kAXStandardWindowSubrole
+    }
+
+    func windowSubrole(_ window: AXUIElement) -> String? {
+        var result: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &result) == .success else { return nil }
+        return result as? String
+    }
+
+    /// True when `window` is the app's currently focused window.
+    func isFocused(_ window: AXUIElement, in app: NSRunningApplication) -> Bool {
+        guard let focused = currentFocusedWindow(for: app) else { return false }
+        return isSameWindow(window, focused)
     }
 
     func currentFocusedWindow(for app: NSRunningApplication) -> AXUIElement? {
@@ -225,8 +308,11 @@ class WindowTracker {
         func appendIfNew(_ window: AXUIElement) {
             if let wid = windowID(window) {
                 guard seenIDs.insert(wid).inserted else { return }
-            } else if windows.contains(where: { CFEqual($0, window) }) {
-                return
+            } else {
+                // No CGWindowID and no subrole is a phantom (Finder's desktop);
+                // ID-less windows with a subrole are real (some Electron apps).
+                guard windowSubrole(window) != nil else { return }
+                if windows.contains(where: { CFEqual($0, window) }) { return }
             }
             windows.append(window)
         }
@@ -312,7 +398,55 @@ class WindowTracker {
         return restored && raised && activated
     }
 
-    private func isSameWindow(_ lhs: AXUIElement, _ rhs: AXUIElement) -> Bool {
+    /// Brings exactly one window to the front — single-view semantics. The
+    /// app's other windows keep their place in the global Z-order instead of
+    /// being dragged forward by app activation. Un-minimizes and un-hides as
+    /// needed. Falls back to restoreAndRaise when the private API is missing
+    /// or the window has no CGWindowID.
+    @discardableResult
+    func focusWindow(_ window: AXUIElement, app: NSRunningApplication) -> Bool {
+        guard SkyLight.isAvailable,
+              let setFront = SkyLight.setFrontProcess,
+              let postEvent = SkyLight.postEventRecord,
+              let getPSN = SkyLight.getProcessForPID,
+              let wid = windowID(window) else {
+            return restoreAndRaise(window, app: app)
+        }
+
+        if isMinimized(window) {
+            AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, false as CFTypeRef)
+        }
+        if app.isHidden {
+            app.unhide()
+        }
+
+        var psn = ProcessSerialNumber()
+        guard getPSN(app.processIdentifier, &psn) == noErr,
+              setFront(&psn, wid, SkyLight.userGeneratedMode) == .success else {
+            WinManLog.tracker.error("SkyLight focus failed for wid \(wid); falling back to activate")
+            return restoreAndRaise(window, app: app)
+        }
+
+        // Synthetic "make key window" event pair (types 1 and 2) understood by
+        // the window server; layout matches AltTab's makeKeyWindow.
+        for kind: UInt8 in [1, 2] {
+            var bytes = [UInt8](repeating: 0, count: 0xf8)
+            bytes[0x04] = 0xF8
+            bytes[0x08] = kind
+            bytes[0x3a] = 0x10
+            var widCopy = wid
+            memcpy(&bytes[0x3c], &widCopy, MemoryLayout<CGWindowID>.size)
+            memset(&bytes[0x20], 0xFF, 0x10)
+            _ = bytes.withUnsafeMutableBufferPointer { buffer in
+                postEvent(&psn, buffer.baseAddress!)
+            }
+        }
+
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        return true
+    }
+
+    func isSameWindow(_ lhs: AXUIElement, _ rhs: AXUIElement) -> Bool {
         if let lhsID = windowID(lhs), let rhsID = windowID(rhs) {
             return lhsID == rhsID
         }

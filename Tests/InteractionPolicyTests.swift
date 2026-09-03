@@ -3,9 +3,53 @@ import Foundation
 enum InteractionPolicyTests {
     static func run() {
         testDockClickPolicy()
+        testManagedClickPolicy()
         testHoverPolicy()
         testSwitcherPolicy()
         print("InteractionPolicyTests passed")
+    }
+
+    private static func testManagedClickPolicy() {
+        // Target up front and focused → minimize
+        check(ManagedClickPolicy.action(
+            hasTarget: true, targetIsMinimized: false, targetIsFullscreen: false,
+            targetIsFocused: true, isFrontmost: true, isAppHidden: false
+        ) == .minimize)
+
+        // The core bug: after minimizing A, macOS focused sibling B. The
+        // pinned target A is minimized → restore A, not B.
+        check(ManagedClickPolicy.action(
+            hasTarget: true, targetIsMinimized: true, targetIsFullscreen: false,
+            targetIsFocused: false, isFrontmost: true, isAppHidden: false
+        ) == .restore)
+
+        // Target visible but another window of the app has focus → focus target only
+        check(ManagedClickPolicy.action(
+            hasTarget: true, targetIsMinimized: false, targetIsFullscreen: false,
+            targetIsFocused: false, isFrontmost: true, isAppHidden: false
+        ) == .focus)
+
+        // App in the background with the target visible → focus target only
+        check(ManagedClickPolicy.action(
+            hasTarget: true, targetIsMinimized: false, targetIsFullscreen: false,
+            targetIsFocused: true, isFrontmost: false, isAppHidden: false
+        ) == .focus)
+
+        // Hidden app (Cmd-H) → focus (which un-hides), never minimize
+        check(ManagedClickPolicy.action(
+            hasTarget: true, targetIsMinimized: false, targetIsFullscreen: false,
+            targetIsFocused: true, isFrontmost: true, isAppHidden: true
+        ) == .focus)
+
+        // No standard window / full-screen target → native Dock behavior
+        check(ManagedClickPolicy.action(
+            hasTarget: false, targetIsMinimized: false, targetIsFullscreen: false,
+            targetIsFocused: false, isFrontmost: false, isAppHidden: false
+        ) == .passThrough)
+        check(ManagedClickPolicy.action(
+            hasTarget: true, targetIsMinimized: false, targetIsFullscreen: true,
+            targetIsFocused: true, isFrontmost: true, isAppHidden: false
+        ) == .passThrough)
     }
 
     private static func testSwitcherPolicy() {
@@ -64,37 +108,48 @@ enum InteractionPolicyTests {
     private static func testHoverPolicy() {
         // Suppression wins over everything
         check(HoverPolicy.response(
-            hitItemIdentity: "a", hoveredIdentity: nil,
+            hitItemIdentity: "a", hitItemIsManaged: true, hoveredIdentity: nil,
             isOverPanel: false, isSuppressed: true
         ) == .suppressed)
 
         // Entering a new dock item starts a hover cycle
         check(HoverPolicy.response(
-            hitItemIdentity: "a", hoveredIdentity: nil,
+            hitItemIdentity: "a", hitItemIsManaged: true, hoveredIdentity: nil,
             isOverPanel: false, isSuppressed: false
         ) == .beginHover)
 
         // Moving between different dock items restarts the cycle
         check(HoverPolicy.response(
-            hitItemIdentity: "b", hoveredIdentity: "a",
+            hitItemIdentity: "b", hitItemIsManaged: true, hoveredIdentity: "a",
             isOverPanel: false, isSuppressed: false
         ) == .beginHover)
 
         // Staying on the same item keeps the panel alive
         check(HoverPolicy.response(
-            hitItemIdentity: "a", hoveredIdentity: "a",
+            hitItemIdentity: "a", hitItemIsManaged: true, hoveredIdentity: "a",
             isOverPanel: false, isSuppressed: false
         ) == .stayOnItem)
 
         // Moving onto the panel (or its corridor) keeps it alive
         check(HoverPolicy.response(
-            hitItemIdentity: nil, hoveredIdentity: "a",
+            hitItemIdentity: nil, hitItemIsManaged: false, hoveredIdentity: "a",
             isOverPanel: true, isSuppressed: false
         ) == .stayOnPanel)
 
         // Leaving both dock and panel schedules dismissal
         check(HoverPolicy.response(
-            hitItemIdentity: nil, hoveredIdentity: "a",
+            hitItemIdentity: nil, hitItemIsManaged: false, hoveredIdentity: "a",
+            isOverPanel: false, isSuppressed: false
+        ) == .leftHoverArea)
+
+        // Non-allowlisted dock item: no preview cycle, and an open panel for
+        // a managed app is dismissed just like leaving the hover area
+        check(HoverPolicy.response(
+            hitItemIdentity: "other", hitItemIsManaged: false, hoveredIdentity: nil,
+            isOverPanel: false, isSuppressed: false
+        ) == .leftHoverArea)
+        check(HoverPolicy.response(
+            hitItemIdentity: "other", hitItemIsManaged: false, hoveredIdentity: "a",
             isOverPanel: false, isSuppressed: false
         ) == .leftHoverArea)
     }

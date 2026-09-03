@@ -24,7 +24,6 @@ struct WinManApp: App {
             Button(tr("设置向导", "Setup Guide")) { appDelegate.openOnboarding() }
             Divider()
             Button(tr("辅助功能设置", "Accessibility Preferences")) { appDelegate.openAccessibilityPreferences() }
-            Button(tr("自动化设置", "Automation Preferences")) { appDelegate.openAutomationPreferences() }
             Divider()
             Button(tr("退出", "Quit")) { appDelegate.quit() }
         }
@@ -39,6 +38,58 @@ private enum WinManIcon {
         return NSImage(contentsOf: url)
     }
 
+}
+
+/// The allowlist of apps that get single-view (Windows-taskbar-style)
+/// management: hover previews, per-window focus without dragging siblings
+/// forward, and a pinned toggle target. Everything else stays native.
+enum ManagedApps {
+    static let defaultsKey = "ManagedBundleIDs"
+    static let defaultBundleIDs = ["com.apple.finder", "com.google.Chrome"]
+
+    static func load() -> [String] {
+        UserDefaults.standard.stringArray(forKey: defaultsKey) ?? defaultBundleIDs
+    }
+
+    static func save(_ bundleIDs: [String]) {
+        UserDefaults.standard.set(bundleIDs, forKey: defaultsKey)
+        NotificationCenter.default.post(name: .winManSettingsChanged, object: nil)
+    }
+
+    static func appURL(for bundleID: String) -> URL? {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.bundleURL
+            ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+    }
+
+    static func displayName(for bundleID: String) -> String {
+        if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first,
+           let name = running.localizedName {
+            return name
+        }
+        if let url = appURL(for: bundleID) {
+            return FileManager.default.displayName(atPath: url.path)
+                .replacingOccurrences(of: ".app", with: "")
+        }
+        return bundleID
+    }
+
+    static func icon(for bundleID: String) -> NSImage? {
+        appURL(for: bundleID).map { NSWorkspace.shared.icon(forFile: $0.path) }
+    }
+
+    /// Running regular apps not yet on the list, for the "add" menu.
+    static func candidates(excluding existing: [String]) -> [(bundleID: String, name: String)] {
+        let taken = Set(existing)
+        let me = Bundle.main.bundleIdentifier
+        var seen = Set<String>()
+        return NSWorkspace.shared.runningApplications.compactMap { app in
+            guard app.activationPolicy == .regular,
+                  let id = app.bundleIdentifier, id != me,
+                  !taken.contains(id), seen.insert(id).inserted else { return nil }
+            return (id, app.localizedName ?? id)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
 }
 
 // MARK: - AppDelegate
@@ -58,10 +109,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Internal (not private): these are used by the AppDelegate extensions in
     // AppDelegate+EventTap.swift, +HoverPreview.swift, and +Help.swift.
     var eventTapRetryWorkItem: DispatchWorkItem?
-    let finderAutomationQueue = DispatchQueue(
-        label: "com.winman.finder-automation",
-        qos: .userInitiated
-    )
     let previewBuildQueue = DispatchQueue(
         label: "com.winman.preview-thumbnails",
         qos: .userInitiated
@@ -85,8 +132,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }()
     var hoverDelay: Double = {
         let v = UserDefaults.standard.double(forKey: "HoverDelay")
-        return v == 0 ? 1.0 : v
+        return v == 0 ? 0.5 : v
     }()
+    var managedBundleIDs: Set<String> = Set(ManagedApps.load())
+
+    func isManaged(_ dockItem: DockItem) -> Bool {
+        dockItem.bundleID.map(managedBundleIDs.contains) ?? false
+    }
+
+    func isManaged(_ app: NSRunningApplication) -> Bool {
+        app.bundleIdentifier.map(managedBundleIDs.contains) ?? false
+    }
 
     // Hover state
     var hoverTimer: Timer?
@@ -180,7 +236,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         isSwitcherEnabled = UserDefaults.standard.object(forKey: "SwitcherEnabled") == nil ? true
             : UserDefaults.standard.bool(forKey: "SwitcherEnabled")
         let v = UserDefaults.standard.double(forKey: "HoverDelay")
-        hoverDelay = v == 0 ? 1.0 : v
+        hoverDelay = v == 0 ? 0.5 : v
+        managedBundleIDs = Set(ManagedApps.load())
     }
 
     // MARK: - Settings window
@@ -191,6 +248,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApp.activate(ignoringOtherApps: true)
         } else {
             let hosting = NSHostingController(rootView: ContentView())
+            // The allowlist grows and shrinks; let the window follow content.
+            hosting.sizingOptions = .preferredContentSize
             let window = NSWindow(contentViewController: hosting)
             window.title = tr("WinMan 设置", "WinMan Settings")
             window.styleMask = [.titled, .closable]
@@ -278,9 +337,5 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func openAccessibilityPreferences() {
         openSecurityPane("Privacy_Accessibility")
-    }
-
-    func openAutomationPreferences() {
-        openSecurityPane("Privacy_Automation")
     }
 }

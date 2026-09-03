@@ -166,11 +166,8 @@ extension AppDelegate {
             }
 
             let isFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
-            if app.bundleIdentifier == "com.apple.finder" {
-                guard delegate.dockMonitor.isAvailable else { return false }
-                delegate.handleFinderDockClick(isFrontmost: isFrontmost, isHidden: app.isHidden)
-                delegate.suppressPreviewAfterAction(for: 1.5)
-                return true
+            if delegate.isManaged(app) {
+                return handleManagedClick(app: app, isFrontmost: isFrontmost, delegate: delegate)
             }
 
             let orderedWindows = delegate.windowTracker.windowsInInteractionOrder(for: app)
@@ -221,50 +218,61 @@ extension AppDelegate {
         return false
     }
 
+    /// Single-view mode for allowlisted apps. The toggle target is the window
+    /// WinMan last acted on (pinned via focus-tracking suppression), so a
+    /// minimize followed by a click always brings back that same window, and
+    /// focusing never drags the app's other windows forward.
+    private static func handleManagedClick(
+        app: NSRunningApplication,
+        isFrontmost: Bool,
+        delegate: AppDelegate
+    ) -> Bool {
+        let tracker = delegate.windowTracker
+        // Last-active first, then global Z-order; standard windows only.
+        let target = tracker.standardWindowsInInteractionOrder(for: app).first
+
+        let action = ManagedClickPolicy.action(
+            hasTarget: target != nil,
+            targetIsMinimized: target.map(tracker.isMinimized) ?? false,
+            targetIsFullscreen: target.map(tracker.isFullscreen) ?? false,
+            targetIsFocused: target.map { tracker.isFocused($0, in: app) } ?? false,
+            isFrontmost: isFrontmost,
+            isAppHidden: app.isHidden
+        )
+
+        WinManLog.app.debug("[managed] \(app.localizedName ?? "?", privacy: .public) frontmost=\(isFrontmost) action=\(String(describing: action), privacy: .public)")
+
+        guard let target, action != .passThrough else { return false }
+
+        // Pin the target before acting so the focus side effects of the action
+        // (macOS focusing a sibling after a minimize) cannot replace it.
+        tracker.setLastActiveWindow(target, for: app)
+        tracker.suppressFocusTracking(for: app)
+
+        let handled: Bool
+        switch action {
+        case .minimize:
+            handled = tracker.minimizeWindow(target)
+        case .restore, .focus:
+            handled = tracker.focusWindow(target, app: app)
+        case .passThrough:
+            return false
+        }
+
+        guard handled else {
+            WinManLog.app.debug("[managed] window operation failed; passing the Dock click through")
+            return false
+        }
+        delegate.suppressPreviewAfterAction(for: 1.5)
+        return true
+    }
+
     func rememberFrontmostWindowAfterUserClick() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             guard let self = self,
                   let app = NSWorkspace.shared.frontmostApplication,
                   let window = self.windowTracker.currentFocusedWindow(for: app) else { return }
             self.windowTracker.setLastActiveWindow(window, for: app)
-        }
-    }
-
-    /// Finder needs System Events; generic AX elements can look stale after Cmd-M.
-    func handleFinderDockClick(isFrontmost: Bool, isHidden: Bool) {
-        finderAutomationQueue.async {
-            let script = """
-            set shouldActivateFinder to true
-            set shouldCreateNewWindow to false
-
-            tell application "System Events"
-                tell process "Finder"
-                    set visibleWindows to every window whose value of attribute "AXMinimized" is false
-                    set minimizedWindows to every window whose value of attribute "AXMinimized" is true
-
-                    if \(isFrontmost && !isHidden) and (count of visibleWindows) > 0 then
-                        set value of attribute "AXMinimized" of item 1 of visibleWindows to true
-                        set shouldActivateFinder to false
-                    else if (count of minimizedWindows) > 0 then
-                        set targetWindow to item 1 of minimizedWindows
-                        set value of attribute "AXMinimized" of targetWindow to false
-                        perform action "AXRaise" of targetWindow
-                    else if (count of visibleWindows) > 0 then
-                        perform action "AXRaise" of item 1 of visibleWindows
-                    else
-                        set shouldCreateNewWindow to true
-                    end if
-                end tell
-            end tell
-
-            if shouldCreateNewWindow then tell application "Finder" to make new Finder window
-            if shouldActivateFinder then tell application "Finder" to activate
-            """
-            var err: NSDictionary?
-            NSAppleScript(source: script)?.executeAndReturnError(&err)
-            if let err = err {
-                WinManLog.app.error("Finder click error: \(err, privacy: .public)")
-            }
         }
     }
 

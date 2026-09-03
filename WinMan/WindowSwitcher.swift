@@ -49,8 +49,10 @@ final class WindowSwitcher {
         }
         let entry = entries[selectedIndex]
         hide()
+        // Alt-Tab picks one window: bring only that one forward.
         windowTracker.setLastActiveWindow(entry.window, for: entry.app)
-        if !windowTracker.restoreAndRaise(entry.window, app: entry.app) {
+        windowTracker.suppressFocusTracking(for: entry.app)
+        if !windowTracker.focusWindow(entry.window, app: entry.app) {
             NSSound.beep()
         }
     }
@@ -100,9 +102,10 @@ final class WindowSwitcher {
             guard let app = NSRunningApplication(processIdentifier: pid),
                   app.activationPolicy == .regular else { continue }
             appsByPID[pid] = app
-            axByPID[pid] = windowTracker.allWindows(for: app).map {
-                ($0, windowTracker.windowID($0), windowTracker.isMinimized($0))
-            }
+            // Standard windows only — no dialogs, sheets, or phantom entries.
+            axByPID[pid] = windowTracker.allWindows(for: app)
+                .filter(windowTracker.isStandardWindow)
+                .map { ($0, windowTracker.windowID($0), windowTracker.isMinimized($0)) }
         }
 
         var result: [SwitcherEntry] = []

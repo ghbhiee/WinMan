@@ -4,48 +4,7 @@ import ApplicationServices
 
 // MARK: - Permission probes
 
-enum AutomationStatus {
-    case granted
-    case denied
-    case notDetermined
-}
-
 enum PermissionProbe {
-    /// Passive Automation (Apple Events → System Events) check; never prompts.
-    static func automationStatus() -> AutomationStatus {
-        let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.systemevents")
-        guard let sourceDesc = target.aeDesc else { return .notDetermined }
-        var address = AEAddressDesc()
-        guard AEDuplicateDesc(sourceDesc, &address) == noErr else { return .notDetermined }
-        defer { AEDisposeDesc(&address) }
-
-        let status = AEDeterminePermissionToAutomateTarget(
-            &address,
-            AEEventClass(typeWildCard),
-            AEEventID(typeWildCard),
-            false
-        )
-        switch Int(status) {
-        case 0:
-            return .granted
-        case -1743:  // errAEEventNotPermitted
-            return .denied
-        default:  // -1744 not yet asked, -600 System Events not running, …
-            return .notDetermined
-        }
-    }
-
-    /// Sends one harmless Apple Event to System Events, which launches it if
-    /// needed and triggers the system consent dialog on first use.
-    static func requestAutomation(completion: @escaping (Bool) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var error: NSDictionary?
-            let script = NSAppleScript(source: "tell application \"System Events\" to count processes")
-            let result = script?.executeAndReturnError(&error)
-            DispatchQueue.main.async { completion(result != nil) }
-        }
-    }
-
     /// Shows the system Accessibility consent dialog (no-op if already granted).
     static func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -57,9 +16,7 @@ enum PermissionProbe {
 
 struct OnboardingView: View {
     @State private var axGranted = AXIsProcessTrusted()
-    @State private var automationStatus = PermissionProbe.automationStatus()
     @State private var screenGranted = CGPreflightScreenCaptureAccess()
-    @State private var checkingAutomation = false
 
     let openSecurityPane: (String) -> Void
     let onDone: () -> Void
@@ -88,30 +45,6 @@ struct OnboardingView: View {
                 Button(tr("授权", "Grant")) {
                     PermissionProbe.requestAccessibility()
                     openSecurityPane("Privacy_Accessibility")
-                }
-            }
-
-            permissionRow(
-                granted: automationStatus == .granted,
-                required: true,
-                title: tr("自动化（System Events）", "Automation (System Events)"),
-                detail: tr("仅用于 Finder 窗口的最小化与恢复。",
-                           "Used only to minimize and restore Finder windows.")
-            ) {
-                if checkingAutomation {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button(tr("授权", "Grant")) {
-                        if automationStatus == .denied {
-                            openSecurityPane("Privacy_Automation")
-                        } else {
-                            checkingAutomation = true
-                            PermissionProbe.requestAutomation { _ in
-                                checkingAutomation = false
-                                automationStatus = PermissionProbe.automationStatus()
-                            }
-                        }
-                    }
                 }
             }
 
@@ -149,9 +82,6 @@ struct OnboardingView: View {
         .onReceive(refresh) { _ in
             axGranted = AXIsProcessTrusted()
             screenGranted = CGPreflightScreenCaptureAccess()
-            if !checkingAutomation {
-                automationStatus = PermissionProbe.automationStatus()
-            }
         }
     }
 

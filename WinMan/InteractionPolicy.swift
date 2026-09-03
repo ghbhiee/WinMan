@@ -31,6 +31,39 @@ enum DockClickPolicy {
     }
 }
 
+// MARK: - Single-view mode click (allowlisted apps)
+
+enum ManagedClickAction: Equatable {
+    /// The target window is up front and focused — minimize it.
+    case minimize
+    /// The target window is minimized — bring it back (only it).
+    case restore
+    /// The target window is visible but not the focused one — focus only it.
+    case focus
+    /// Nothing to act on; let macOS handle the Dock click.
+    case passThrough
+}
+
+/// Windows-taskbar semantics for one app's "current view": the Dock icon
+/// always toggles the window WinMan last acted on, regardless of which
+/// sibling macOS happened to focus afterwards.
+enum ManagedClickPolicy {
+    static func action(
+        hasTarget: Bool,
+        targetIsMinimized: Bool,
+        targetIsFullscreen: Bool,
+        targetIsFocused: Bool,
+        isFrontmost: Bool,
+        isAppHidden: Bool
+    ) -> ManagedClickAction {
+        guard hasTarget else { return .passThrough }
+        if targetIsFullscreen { return .passThrough }
+        if targetIsMinimized { return .restore }
+        if isFrontmost && !isAppHidden && targetIsFocused { return .minimize }
+        return .focus
+    }
+}
+
 // MARK: - Hover preview
 
 enum HoverResponse: Equatable {
@@ -47,14 +80,19 @@ enum HoverResponse: Equatable {
 }
 
 enum HoverPolicy {
+    /// `hitItemIsManaged`: previews exist only for allowlisted apps. Hovering a
+    /// non-managed dock item behaves like leaving the hover area entirely, so
+    /// other apps never see a panel or a timer.
     static func response(
         hitItemIdentity: String?,
+        hitItemIsManaged: Bool,
         hoveredIdentity: String?,
         isOverPanel: Bool,
         isSuppressed: Bool
     ) -> HoverResponse {
         if isSuppressed { return .suppressed }
         if let hitItemIdentity {
+            guard hitItemIsManaged else { return .leftHoverArea }
             return hitItemIdentity == hoveredIdentity ? .stayOnItem : .beginHover
         }
         return isOverPanel ? .stayOnPanel : .leftHoverArea

@@ -89,46 +89,55 @@ extension AppDelegate {
         append(tr("""
         • 点击当前前台应用的 Dock 图标：最小化最近使用的窗口。
         • 再次点击该图标：恢复上次活动或最小化的窗口。
-        • 应用有多个窗口时，将鼠标停留在 Dock 图标上可显示窗口预览。
-        • 点击某个预览可直接恢复并激活对应窗口。
-        • 悬停缩略图时右上角出现 ✕，点击可直接关闭该窗口（与 Windows 任务栏一致）。
         • ⌥Tab 打开全局窗口切换器（含最小化窗口）：按住 ⌥ 连续 Tab 循环，
           ⇧⌥Tab 反向，松开 ⌥ 切换到所选窗口，Esc 取消。
         • 全屏窗口保留 macOS 原生 Dock 行为，不会被 WinMan 强制最小化。
         """, """
         • Click the frontmost app's Dock icon: minimize its most recent window.
         • Click the icon again: restore the last active or minimized window.
-        • Hover over an app with multiple windows to show clickable previews.
-        • Click a preview to restore and activate that window.
-        • Hover a thumbnail and click the ✕ in its corner to close that window,
-          just like the Windows taskbar.
         • ⌥Tab opens a global window switcher (including minimized windows):
           keep holding ⌥ and press Tab to cycle, ⇧⌥Tab to go backwards,
           release ⌥ to switch, Esc to cancel.
         • Full-screen windows keep native macOS Dock behavior.
         """), font: .systemFont(ofSize: 13))
 
-        section("Finder")
+        section(tr("单视图模式（白名单应用）", "Single-view mode (allowlisted apps)"))
         append(tr("""
-        Finder 使用独立的 System Events 处理逻辑。无论通过 Cmd-M、黄色最小化按钮，
-        还是 WinMan 的 Dock 点击最小化，都可以再次点击 Finder 图标恢复窗口。
+        对白名单里的应用（默认 Finder 和 Chrome，可在设置中增删），WinMan 把每个窗口
+        当作独立的「视图」来管理，像 Windows 任务栏一样：
+        • 鼠标停在 Dock 图标上即显示各窗口的预览，移到预览再点击即可打开该窗口；
+          预览已显示时滑到相邻图标会立即切换。
+        • 打开或恢复某个窗口时，只有这个窗口会到前面，同应用的其他窗口留在原处，
+          不会被一起带出来。
+        • Dock 图标始终操作 WinMan 最近处理的那个窗口：最小化 A 之后再点，恢复的
+          一定是 A，不会变成同应用的其他窗口。
+        • 悬停缩略图时右上角出现 ✕，点击可直接关闭该窗口。
+        白名单之外的应用完全保持 macOS 原生行为，鼠标悬停不会有任何干扰。
         """, """
-        Finder uses dedicated System Events handling. Windows minimized with
-        Cmd-M, the yellow button, or a WinMan Dock click can all be restored by
-        clicking the Finder icon again.
+        For allowlisted apps (Finder and Chrome by default; edit the list in
+        Settings) WinMan treats every window as its own "view", like the
+        Windows taskbar:
+        • Hovering the Dock icon shows a preview of each window; move onto a
+          preview and click to open that window. With a preview already up,
+          sliding to a neighboring icon switches instantly.
+        • Opening or restoring a window brings only that window forward — the
+          app's other windows stay where they are.
+        • The Dock icon always acts on the window WinMan handled last: minimize
+          A, click again, and A comes back — never some other window.
+        • Hover a thumbnail and click the ✕ in its corner to close that window.
+        Apps outside the allowlist keep native macOS behavior; hovering their
+        icons does nothing.
         """), font: .systemFont(ofSize: 13))
 
         section(tr("权限", "Permissions"))
         append(tr("""
         • 辅助功能：必须，用于读取 Dock 图标位置以及读取和改变窗口状态。
-        • 自动化：仅 Finder 窗口管理需要（System Events）；其余功能不再依赖。
         • 屏幕录制：可选，仅用于显示实时窗口缩略图；拒绝后仍可使用窗口切换。
 
         如果点击没有反应，请先通过菜单栏的「设置向导」确认 WinMan 已授权。
         更换签名身份时可能需要最后重新授权一次；以后使用相同签名编译不会反复失效。
         """, """
         • Accessibility: required — reads Dock icon positions and manages windows.
-        • Automation: needed only for Finder window management (System Events).
         • Screen Recording: optional — live window thumbnails only.
 
         If clicks do nothing, open the Setup Guide from the menu bar and confirm
