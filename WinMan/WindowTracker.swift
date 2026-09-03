@@ -233,7 +233,10 @@ class WindowTracker {
     }
 
     func isStandardWindow(_ window: AXUIElement) -> Bool {
-        windowID(window) != nil && windowSubrole(window) == kAXStandardWindowSubrole
+        guard windowID(window) != nil else { return false }
+        // Finder (and possibly others) report a minimized window's subrole as
+        // AXDialog until it is restored, so only judge subrole while visible.
+        return windowSubrole(window) == kAXStandardWindowSubrole || isMinimized(window)
     }
 
     func windowSubrole(_ window: AXUIElement) -> String? {

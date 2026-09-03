@@ -7,7 +7,7 @@
 - 修复点击 Dock 图标恢复/最小化到错误窗口的问题：WinMan 自己的动作后短暂屏蔽焦点追踪，钉住目标窗口——最小化 A 后再点，恢复的一定是 A；新增 ManagedClickPolicy 纯函数及测试。
 - Finder 不再走 System Events AppleScript，改为与其他应用相同的 AX 路径（过滤掉 Finder 的桌面幽灵窗口）；**Automation 权限彻底不再需要**，向导、菜单和帮助同步精简。
 - 预览更快：默认悬停延迟 1.0s → 0.5s（最低 0.2s）；预览已显示时滑到相邻白名单图标立即切换。
-- 预览、切换器只列标准窗口（AXStandardWindow），不再混入对话框/面板。
+- 预览、切换器只列标准窗口（AXStandardWindow），不再混入对话框/面板；最小化的窗口不看 subrole（Finder 会把最小化窗口报成 AXDialog）。
 
 ## 1.2.0 - 2026-07-27
 
