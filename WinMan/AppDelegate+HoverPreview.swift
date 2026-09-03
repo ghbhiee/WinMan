@@ -6,7 +6,10 @@ import CoreGraphics
 struct PeekState {
     let item: WindowPreviewItem
     let app: NSRunningApplication
-    let wasMinimized: Bool
+    /// False when the card was hovered but nothing was brought forward
+    /// (minimized windows are never un-minimized by a peek — that would
+    /// play the genie animation twice; they only come back on click).
+    let didFocus: Bool
     /// The window that was frontmost before the first peek in this hover
     /// session (kept across thumbnail-to-thumbnail switches).
     let previousFront: (pid: pid_t, wid: CGWindowID)?
@@ -49,20 +52,16 @@ extension AppDelegate {
     }
 
     private func startPeek(_ item: WindowPreviewItem, app: NSRunningApplication) {
-        let previousFront: (pid: pid_t, wid: CGWindowID)?
-        if let current = peek {
-            // Switching cards: undo only the previous card's un-minimize; the
-            // original front window is remembered for the final restore.
-            if current.wasMinimized { windowTracker.minimizeWindow(current.item.element) }
-            previousFront = current.previousFront
-        } else {
-            previousFront = frontmostWindowInfo()
-        }
+        // Switching cards keeps the original pre-peek front window for the
+        // final restore; the first peek of a hover session records it.
+        let previousFront = peek?.previousFront ?? frontmostWindowInfo()
 
-        let wasMinimized = windowTracker.isMinimized(item.element)
-        if let previousFront, previousFront.wid == item.windowID, !wasMinimized {
-            // Already the front window — nothing to show, nothing to undo.
-            peek = PeekState(item: item, app: app, wasMinimized: false, previousFront: previousFront)
+        let isMinimized = windowTracker.isMinimized(item.element)
+        let alreadyFront = previousFront.map { $0.wid == item.windowID } ?? false
+        if isMinimized || alreadyFront {
+            // Nothing to bring forward: minimized windows wait for a click,
+            // and the front window is already visible.
+            peek = PeekState(item: item, app: app, didFocus: false, previousFront: previousFront)
             return
         }
 
@@ -72,8 +71,8 @@ extension AppDelegate {
             windowTracker.suppressFocusTracking(for: frontApp, interval: 2.0)
         }
         windowTracker.focusWindow(item.element, app: app)
-        peek = PeekState(item: item, app: app, wasMinimized: wasMinimized, previousFront: previousFront)
-        WinManLog.app.debug("[peek] showing \(item.title, privacy: .public) (wasMinimized=\(wasMinimized))")
+        peek = PeekState(item: item, app: app, didFocus: true, previousFront: previousFront)
+        WinManLog.app.debug("[peek] showing \(item.title, privacy: .public)")
     }
 
     /// End the peek. With `restore`, re-minimize what was minimized and bring
@@ -85,11 +84,8 @@ extension AppDelegate {
         peekRestoreTimer = nil
         guard let current = peek else { return }
         peek = nil
-        guard restore else { return }
+        guard restore, current.didFocus else { return }
 
-        if current.wasMinimized {
-            windowTracker.minimizeWindow(current.item.element)
-        }
         if let previous = current.previousFront,
            previous.wid != current.item.windowID,
            let frontApp = NSRunningApplication(processIdentifier: previous.pid),
@@ -215,9 +211,11 @@ extension AppDelegate {
         let apps = NSWorkspace.shared.runningApplications
         guard let app = apps.first(where: { self.matches(app: $0, dockItem: dockItem) }) else { return }
 
-        // Put the tracked active window first, then fall back to system Z-order.
-        let axWindows = windowTracker.standardWindowsInInteractionOrder(for: app)
+        // Fixed order (creation order) so cards never shuffle; the last-active
+        // window — what a Dock click toggles — is flagged instead.
+        let axWindows = windowTracker.standardWindowsInStableOrder(for: app)
         guard axWindows.count >= minimumPreviewWindowCount else { return }
+        let lastActive = windowTracker.lastActiveWindow(in: axWindows, for: app)
 
         // Collect metadata on the main thread; window imaging happens off it so
         // the event tap callback is never blocked by slow captures.
@@ -236,7 +234,8 @@ extension AppDelegate {
             }
             items.append(WindowPreviewItem(
                 id: itemID, element: axWindow, title: title,
-                thumbnail: nil, isMinimized: minimized, windowID: wid
+                thumbnail: nil, isMinimized: minimized, windowID: wid,
+                isLastActive: lastActive.map { windowTracker.isSameWindow($0, axWindow) } ?? false
             ))
         }
 

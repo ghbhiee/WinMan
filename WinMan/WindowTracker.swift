@@ -232,6 +232,16 @@ class WindowTracker {
         windowsInInteractionOrder(for: app).filter(isStandardWindow)
     }
 
+    /// Standard windows in a fixed order (by CGWindowID, i.e. creation order)
+    /// that does not shuffle as focus moves — for the preview row.
+    func standardWindowsInStableOrder(for app: NSRunningApplication) -> [AXUIElement] {
+        allWindows(for: app)
+            .filter(isStandardWindow)
+            .map { ($0, windowID($0) ?? .max) }
+            .sorted { $0.1 < $1.1 }
+            .map { $0.0 }
+    }
+
     func isStandardWindow(_ window: AXUIElement) -> Bool {
         guard windowID(window) != nil else { return false }
         // Finder (and possibly others) report a minimized window's subrole as

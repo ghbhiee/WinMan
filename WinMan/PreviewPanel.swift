@@ -9,6 +9,8 @@ struct WindowPreviewItem: Identifiable {
     var thumbnail: NSImage?
     var isMinimized: Bool
     var windowID: CGWindowID?
+    /// The window a Dock click will act on — shown with a blue title.
+    var isLastActive: Bool = false
 }
 
 class PreviewPanel: NSPanel {
@@ -53,11 +55,14 @@ class PreviewPanel: NSPanel {
             windowCount: windows.count,
             screenWidth: screenFrame.width
         )
-        let panelSize = CGSize(width: panelWidth, height: 200)
+        // Height hugs the card row so the panel sits right against the Dock
+        // and the pointer's trip from icon to card is as short as possible.
+        let panelSize = CGSize(width: panelWidth, height: PreviewPanelView.height)
         let frame = ScreenGeometry.previewFrame(
             panelSize: panelSize,
             dockRect: appKitDockRect,
-            screenFrame: screenFrame
+            screenFrame: screenFrame,
+            gap: 2
         )
         self.setFrame(frame, display: false)
 
@@ -91,6 +96,9 @@ class PreviewPanel: NSPanel {
 
 /// A row of floating window cards — no shared backdrop, no panel chrome.
 struct PreviewPanelView: View {
+    /// Card (title 14 + 6 + thumbnail 120 + padding 16) plus 10pt row padding.
+    static let height: CGFloat = 176
+
     let windows: [WindowPreviewItem]
     let appIcon: NSImage?
     let onSelect: (AXUIElement) -> Void
@@ -112,7 +120,7 @@ struct PreviewPanelView: View {
             }
             .padding(10)
         }
-        .frame(height: 200)
+        .frame(height: Self.height)
     }
 }
 
@@ -128,13 +136,15 @@ struct WindowThumbnailView: View {
         VStack(spacing: 6) {
             // Title on top; it flashes on hover so the eye lands on the window
             // that is being peeked at.
+            // Blue = the last-active window, i.e. what a Dock click toggles.
             Text(item.title.isEmpty ? "Window" : item.title)
-                .font(.caption.weight(isHovered ? .semibold : .regular))
+                .font(.caption.weight(item.isLastActive || isHovered ? .semibold : .regular))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(width: 160)
-                .foregroundStyle(titleFlash ? Color.accentColor : (isHovered ? Color.primary : Color.secondary))
-                .scaleEffect(titleFlash ? 1.08 : 1.0)
+                .foregroundStyle(item.isLastActive ? Color.accentColor : (isHovered ? Color.primary : Color.secondary))
+                .opacity(titleFlash ? 0.3 : 1.0)
+                .scaleEffect(titleFlash ? 1.06 : 1.0)
 
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 6)
