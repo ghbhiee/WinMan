@@ -33,7 +33,8 @@ class PreviewPanel: NSPanel {
         windows: [WindowPreviewItem],
         nearDockRect dockRect: NSRect,
         onSelect: @escaping (AXUIElement, NSRunningApplication) -> Void,
-        onCloseWindow: @escaping (WindowPreviewItem) -> Void
+        onCloseWindow: @escaping (WindowPreviewItem) -> Void,
+        onHoverWindow: @escaping (WindowPreviewItem, Bool) -> Void
     ) {
         let screens = NSScreen.screens
         guard let primaryScreenFrame = screens.first?.frame else { return }
@@ -64,8 +65,8 @@ class PreviewPanel: NSPanel {
             windows: windows,
             appIcon: app.icon,
             onSelect: { element in onSelect(element, app) },
-            onClose: { [weak self] in self?.dismiss() },
-            onCloseWindow: onCloseWindow
+            onCloseWindow: onCloseWindow,
+            onHoverWindow: onHoverWindow
         )
 
         if let hv = hostingView {
@@ -88,49 +89,30 @@ class PreviewPanel: NSPanel {
 
 // MARK: - SwiftUI views
 
+/// A row of floating window cards — no shared backdrop, no panel chrome.
 struct PreviewPanelView: View {
     let windows: [WindowPreviewItem]
     let appIcon: NSImage?
     let onSelect: (AXUIElement) -> Void
-    let onClose: () -> Void
     let onCloseWindow: (WindowPreviewItem) -> Void
+    let onHoverWindow: (WindowPreviewItem, Bool) -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(windows) { item in
-                        WindowThumbnailView(
-                            item: item,
-                            appIcon: appIcon,
-                            onCloseWindow: { onCloseWindow(item) }
-                        )
-                        .onTapGesture { onSelect(item.element) }
-                    }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(windows) { item in
+                    WindowThumbnailView(
+                        item: item,
+                        appIcon: appIcon,
+                        onCloseWindow: { onCloseWindow(item) },
+                        onHoverChange: { hovering in onHoverWindow(item, hovering) }
+                    )
+                    .onTapGesture { onSelect(item.element) }
                 }
-                .padding(.horizontal, 10)
-                .padding(.top, 28)   // leave room for close button
-                .padding(.bottom, 10)
             }
-
-            // X close button
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 16))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .padding(6)
-            .contentShape(Rectangle())
+            .padding(10)
         }
         .frame(height: 200)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.regularMaterial)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(radius: 10, y: 4)
     }
 }
 
@@ -138,20 +120,28 @@ struct WindowThumbnailView: View {
     let item: WindowPreviewItem
     let appIcon: NSImage?
     let onCloseWindow: () -> Void
+    let onHoverChange: (Bool) -> Void
     @State private var isHovered = false
+    @State private var titleFlash = false
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
+            // Title on top; it flashes on hover so the eye lands on the window
+            // that is being peeked at.
+            Text(item.title.isEmpty ? "Window" : item.title)
+                .font(.caption.weight(isHovered ? .semibold : .regular))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 160)
+                .foregroundStyle(titleFlash ? Color.accentColor : (isHovered ? Color.primary : Color.secondary))
+                .scaleEffect(titleFlash ? 1.08 : 1.0)
+
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isHovered
-                          ? Color.accentColor.opacity(0.25)
+                          ? Color.accentColor.opacity(0.18)
                           : Color(nsColor: .windowBackgroundColor).opacity(0.5))
                     .frame(width: 160, height: 120)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(isHovered ? Color.accentColor.opacity(0.6) : Color.clear, lineWidth: 2)
-                    )
 
                 if let thumb = item.thumbnail {
                     Image(nsImage: thumb)
@@ -182,17 +172,33 @@ struct WindowThumbnailView: View {
                     .help(tr("关闭窗口", "Close window"))
                 }
             }
-            .scaleEffect(isHovered ? 1.03 : 1.0)
-            .animation(.easeInOut(duration: 0.12), value: isHovered)
-
-            Text(item.title.isEmpty ? "Window" : item.title)
-                .font(.caption)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(width: 160)
-                .foregroundStyle(isHovered ? .primary : .secondary)
         }
-        .onHover { hovering in isHovered = hovering }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.regularMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(isHovered ? Color.accentColor.opacity(0.7) : Color.clear, lineWidth: 2)
+        )
+        .shadow(radius: 8, y: 3)
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .onHover { hovering in
+            isHovered = hovering
+            onHoverChange(hovering)
+            if hovering {
+                withAnimation(.easeInOut(duration: 0.12).repeatCount(5, autoreverses: true)) {
+                    titleFlash = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
+                    withAnimation(.easeOut(duration: 0.1)) { titleFlash = false }
+                }
+            } else {
+                titleFlash = false
+            }
+        }
     }
 }
 

@@ -1,9 +1,118 @@
 import Cocoa
 import CoreGraphics
 
+/// Aero-Peek bookkeeping: what was brought forward for a hovered thumbnail
+/// and what to put back if the user does not click it.
+struct PeekState {
+    let item: WindowPreviewItem
+    let app: NSRunningApplication
+    let wasMinimized: Bool
+    /// The window that was frontmost before the first peek in this hover
+    /// session (kept across thumbnail-to-thumbnail switches).
+    let previousFront: (pid: pid_t, wid: CGWindowID)?
+}
+
 // Hover state machine and preview panel orchestration. Decisions come from
 // HoverPolicy; this file owns the timers and panel side effects.
 extension AppDelegate {
+
+    /// Hide the preview. `restorePeek` puts a peeked window back to where it
+    /// was; pass false when the user committed (clicked) or acted on the Dock.
+    func dismissPreview(restorePeek: Bool = true) {
+        endPeek(restore: restorePeek)
+        previewPanel?.dismiss()
+    }
+
+    // MARK: - Aero Peek
+
+    /// Thumbnail hover in/out. Peeking is debounced so sweeping the pointer
+    /// across the row does not thrash windows; leaving is debounced so moving
+    /// to the next card switches the peek instead of restoring in between.
+    func handleThumbnailHover(_ item: WindowPreviewItem, app: NSRunningApplication, hovering: Bool) {
+        if hovering {
+            peekRestoreTimer?.invalidate()
+            peekRestoreTimer = nil
+            peekStartTimer?.invalidate()
+            if let peek, peek.item.id == item.id { return }
+            peekStartTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in
+                DispatchQueue.main.async { self?.startPeek(item, app: app) }
+            }
+        } else {
+            peekStartTimer?.invalidate()
+            peekStartTimer = nil
+            guard peek?.item.id == item.id else { return }
+            peekRestoreTimer?.invalidate()
+            peekRestoreTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in
+                DispatchQueue.main.async { self?.endPeek(restore: true) }
+            }
+        }
+    }
+
+    private func startPeek(_ item: WindowPreviewItem, app: NSRunningApplication) {
+        let previousFront: (pid: pid_t, wid: CGWindowID)?
+        if let current = peek {
+            // Switching cards: undo only the previous card's un-minimize; the
+            // original front window is remembered for the final restore.
+            if current.wasMinimized { windowTracker.minimizeWindow(current.item.element) }
+            previousFront = current.previousFront
+        } else {
+            previousFront = frontmostWindowInfo()
+        }
+
+        let wasMinimized = windowTracker.isMinimized(item.element)
+        if let previousFront, previousFront.wid == item.windowID, !wasMinimized {
+            // Already the front window — nothing to show, nothing to undo.
+            peek = PeekState(item: item, app: app, wasMinimized: false, previousFront: previousFront)
+            return
+        }
+
+        // Peeking is not a user focus decision: keep last-active tracking quiet.
+        windowTracker.suppressFocusTracking(for: app, interval: 2.0)
+        if let previousFront, let frontApp = NSRunningApplication(processIdentifier: previousFront.pid) {
+            windowTracker.suppressFocusTracking(for: frontApp, interval: 2.0)
+        }
+        windowTracker.focusWindow(item.element, app: app)
+        peek = PeekState(item: item, app: app, wasMinimized: wasMinimized, previousFront: previousFront)
+        WinManLog.app.debug("[peek] showing \(item.title, privacy: .public) (wasMinimized=\(wasMinimized))")
+    }
+
+    /// End the peek. With `restore`, re-minimize what was minimized and bring
+    /// the pre-peek front window back; without it, leave the peeked window up.
+    func endPeek(restore: Bool) {
+        peekStartTimer?.invalidate()
+        peekStartTimer = nil
+        peekRestoreTimer?.invalidate()
+        peekRestoreTimer = nil
+        guard let current = peek else { return }
+        peek = nil
+        guard restore else { return }
+
+        if current.wasMinimized {
+            windowTracker.minimizeWindow(current.item.element)
+        }
+        if let previous = current.previousFront,
+           previous.wid != current.item.windowID,
+           let frontApp = NSRunningApplication(processIdentifier: previous.pid),
+           let frontWindow = windowTracker.allWindows(for: frontApp).first(where: { windowTracker.windowID($0) == previous.wid }) {
+            windowTracker.suppressFocusTracking(for: frontApp, interval: 1.0)
+            windowTracker.suppressFocusTracking(for: current.app, interval: 1.0)
+            windowTracker.focusWindow(frontWindow, app: frontApp)
+        }
+        WinManLog.app.debug("[peek] restored \(current.item.title, privacy: .public)")
+    }
+
+    private func frontmostWindowInfo() -> (pid: pid_t, wid: CGWindowID)? {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        let list = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]) ?? []
+        let me = pid_t(ProcessInfo.processInfo.processIdentifier)
+        for info in list {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+                  let wid = info[kCGWindowNumber as String] as? CGWindowID else { continue }
+            return (pid, wid)
+        }
+        return nil
+    }
 
     /// After a click or right-click action, hover preview is suppressed for a
     /// short time. Time-based suppression never gets permanently stuck unlike
@@ -14,7 +123,7 @@ extension AppDelegate {
         hoverTimer = nil
         dismissPreviewTimer?.invalidate()
         dismissPreviewTimer = nil
-        previewPanel?.dismiss()
+        dismissPreview(restorePeek: false)
     }
 
     static func handleMouseMoved(location: CGPoint, delegate: AppDelegate) {
@@ -44,7 +153,7 @@ extension AppDelegate {
             delegate.dismissPreviewTimer?.invalidate()
             delegate.dismissPreviewTimer = nil
             delegate.hoverTimer?.invalidate()
-            delegate.previewPanel?.dismiss()
+            delegate.dismissPreview(restorePeek: true)
             delegate.hoveredDockItem = dockItem
 
             delegate.hoverTimer = Timer.scheduledTimer(
@@ -70,7 +179,7 @@ extension AppDelegate {
                     withTimeInterval: 0.4,
                     repeats: false
                 ) { [weak delegate] _ in
-                    DispatchQueue.main.async { delegate?.previewPanel?.dismiss() }
+                    DispatchQueue.main.async { delegate?.dismissPreview(restorePeek: true) }
                     delegate?.dismissPreviewTimer = nil
                 }
             }
@@ -158,7 +267,8 @@ extension AppDelegate {
                     for: app, windows: readyItems, nearDockRect: dockItem.rect,
                     onSelect: { [weak self] element, app in
                         guard let self else { return }
-                        self.previewPanel?.dismiss()
+                        // The click commits whatever the peek already showed.
+                        self.dismissPreview(restorePeek: false)
                         // Single-view: bring up only the chosen window and pin it.
                         self.windowTracker.setLastActiveWindow(element, for: app)
                         self.windowTracker.suppressFocusTracking(for: app)
@@ -168,6 +278,9 @@ extension AppDelegate {
                     },
                     onCloseWindow: { [weak self] item in
                         self?.closeWindowFromPreview(item, app: app, dockItem: dockItem)
+                    },
+                    onHoverWindow: { [weak self] item, hovering in
+                        self?.handleThumbnailHover(item, app: app, hovering: hovering)
                     }
                 )
             }
@@ -181,6 +294,7 @@ extension AppDelegate {
     /// Close a window from its preview thumbnail, then refresh the panel with
     /// the surviving windows (or dismiss it when too few remain).
     private func closeWindowFromPreview(_ item: WindowPreviewItem, app: NSRunningApplication, dockItem: DockItem) {
+        endPeek(restore: false)
         guard windowTracker.closeWindow(item.element) else {
             NSSound.beep()
             return
@@ -192,7 +306,7 @@ extension AppDelegate {
             if remaining.count >= self.minimumPreviewWindowCount {
                 self.showPreview(for: dockItem)
             } else {
-                self.previewPanel?.dismiss()
+                self.dismissPreview(restorePeek: false)
             }
         }
     }
