@@ -40,6 +40,23 @@ private enum WinManIcon {
 
 }
 
+/// UserDefaults reads with an explicit default for keys the user never touched.
+/// Every read path must use this: plain bool(forKey:) turns a missing key into
+/// false, which once silently disabled click toggling and previews the first
+/// time any other setting was changed.
+enum Settings {
+    static func bool(_ key: String, default defaultValue: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) == nil
+            ? defaultValue
+            : UserDefaults.standard.bool(forKey: key)
+    }
+
+    static var hoverDelay: Double {
+        let value = UserDefaults.standard.double(forKey: "HoverDelay")
+        return value == 0 ? 0.5 : value
+    }
+}
+
 /// The allowlist of apps that get single-view (Windows-taskbar-style)
 /// management: hover previews, per-window focus without dragging siblings
 /// forward, and a pinned toggle target. Everything else stays native.
@@ -116,24 +133,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let githubURL = URL(string: "https://github.com/ghbhiee/WinMan")!
 
     // Settings
-    var isToggleEnabled: Bool = {
-        UserDefaults.standard.object(forKey: "ToggleEnabled") == nil ? true
-            : UserDefaults.standard.bool(forKey: "ToggleEnabled")
-    }()
-    var isPreviewEnabled: Bool = {
-        UserDefaults.standard.object(forKey: "PreviewEnabled") == nil ? true
-            : UserDefaults.standard.bool(forKey: "PreviewEnabled")
-    }()
-    var isSingleWindowPreviewEnabled: Bool =
-        UserDefaults.standard.bool(forKey: "PreviewSingleWindow")
-    var isSwitcherEnabled: Bool = {
-        UserDefaults.standard.object(forKey: "SwitcherEnabled") == nil ? true
-            : UserDefaults.standard.bool(forKey: "SwitcherEnabled")
-    }()
-    var hoverDelay: Double = {
-        let v = UserDefaults.standard.double(forKey: "HoverDelay")
-        return v == 0 ? 0.5 : v
-    }()
+    var isToggleEnabled = Settings.bool("ToggleEnabled", default: true)
+    var isPreviewEnabled = Settings.bool("PreviewEnabled", default: true)
+    var isSingleWindowPreviewEnabled = Settings.bool("PreviewSingleWindow", default: false)
+    var isSwitcherEnabled = Settings.bool("SwitcherEnabled", default: true)
+    var hoverDelay = Settings.hoverDelay
     var managedBundleIDs: Set<String> = Set(ManagedApps.load())
 
     func isManaged(_ dockItem: DockItem) -> Bool {
@@ -230,14 +234,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func settingsChanged() {
-        isToggleEnabled = UserDefaults.standard.bool(forKey: "ToggleEnabled")
-        isPreviewEnabled = UserDefaults.standard.bool(forKey: "PreviewEnabled")
-        isSingleWindowPreviewEnabled = UserDefaults.standard.bool(forKey: "PreviewSingleWindow")
-        isSwitcherEnabled = UserDefaults.standard.object(forKey: "SwitcherEnabled") == nil ? true
-            : UserDefaults.standard.bool(forKey: "SwitcherEnabled")
-        let v = UserDefaults.standard.double(forKey: "HoverDelay")
-        hoverDelay = v == 0 ? 0.5 : v
+        isToggleEnabled = Settings.bool("ToggleEnabled", default: true)
+        isPreviewEnabled = Settings.bool("PreviewEnabled", default: true)
+        isSingleWindowPreviewEnabled = Settings.bool("PreviewSingleWindow", default: false)
+        isSwitcherEnabled = Settings.bool("SwitcherEnabled", default: true)
+        hoverDelay = Settings.hoverDelay
         managedBundleIDs = Set(ManagedApps.load())
+        WinManLog.app.info("Settings reloaded: toggle=\(self.isToggleEnabled) preview=\(self.isPreviewEnabled) switcher=\(self.isSwitcherEnabled) delay=\(self.hoverDelay) managed=\(self.managedBundleIDs.count)")
     }
 
     // MARK: - Settings window
