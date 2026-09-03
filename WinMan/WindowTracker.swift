@@ -427,19 +427,26 @@ class WindowTracker {
             return restoreAndRaise(window, app: app)
         }
 
-        // Synthetic "make key window" event pair (types 1 and 2) understood by
-        // the window server; layout matches AltTab's makeKeyWindow.
-        for kind: UInt8 in [1, 2] {
-            var bytes = [UInt8](repeating: 0, count: 0xf8)
-            bytes[0x04] = 0xF8
-            bytes[0x08] = kind
-            bytes[0x3a] = 0x10
-            var widCopy = wid
-            memcpy(&bytes[0x3c], &widCopy, MemoryLayout<CGWindowID>.size)
-            memset(&bytes[0x20], 0xFF, 0x10)
-            _ = bytes.withUnsafeMutableBufferPointer { buffer in
-                postEvent(&psn, buffer.baseAddress!)
-            }
+        // Synthetic left-mouse-down CGSEventRecord addressed to the window by
+        // id, which makes it key without clicking its content. Layout follows
+        // AltTab's makeKeyWindow as verified on macOS 26.5:
+        //  - buffer is 0x100 although the record declares 0xf8: WindowServer on
+        //    macOS 14.7.4+ reads past the record, so the tail must be zeroed;
+        //  - a single mouse-down only (no up), so no control can ever be
+        //    activated by a half-click;
+        //  - windowLocation is a real point far past the bottom-right corner
+        //    (the old 0xFF NaN fill is sanitized to (0,0) by some apps, which
+        //    then clicks whatever sits at their top-left).
+        var bytes = [UInt8](repeating: 0, count: 0x100)
+        bytes[0x04] = 0xF8                       // declared record length
+        bytes[0x08] = 0x01                       // kCGEventLeftMouseDown
+        bytes[0x3a] = 0x10                       // undocumented flag (yabai/Hammerspoon)
+        var widCopy = wid
+        memcpy(&bytes[0x3c], &widCopy, MemoryLayout<CGWindowID>.size)
+        var point = CGPoint(x: 300_000, y: 300_000)
+        memcpy(&bytes[0x20], &point, MemoryLayout<CGPoint>.size)
+        _ = bytes.withUnsafeMutableBufferPointer { buffer in
+            postEvent(&psn, buffer.baseAddress!)
         }
 
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
