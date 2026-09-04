@@ -38,7 +38,8 @@ class PreviewPanel: NSPanel {
         nearDockRect dockRect: NSRect,
         onSelect: @escaping (AXUIElement, NSRunningApplication) -> Void,
         onCloseWindow: @escaping (WindowPreviewItem) -> Void,
-        onMinimizeWindow: @escaping (WindowPreviewItem) -> Void
+        onMinimizeWindow: @escaping (WindowPreviewItem) -> Void,
+        onMinimizeOthers: @escaping (WindowPreviewItem) -> Void
     ) {
         let screens = NSScreen.screens
         guard let primaryScreenFrame = screens.first?.frame else { return }
@@ -73,7 +74,8 @@ class PreviewPanel: NSPanel {
             appIcon: app.icon,
             onSelect: { element in onSelect(element, app) },
             onCloseWindow: onCloseWindow,
-            onMinimizeWindow: onMinimizeWindow
+            onMinimizeWindow: onMinimizeWindow,
+            onMinimizeOthers: onMinimizeOthers
         )
 
         if let hv = hostingView {
@@ -106,6 +108,7 @@ struct PreviewPanelView: View {
     let onSelect: (AXUIElement) -> Void
     let onCloseWindow: (WindowPreviewItem) -> Void
     let onMinimizeWindow: (WindowPreviewItem) -> Void
+    let onMinimizeOthers: (WindowPreviewItem) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -115,7 +118,8 @@ struct PreviewPanelView: View {
                         item: item,
                         appIcon: appIcon,
                         onCloseWindow: { onCloseWindow(item) },
-                        onMinimizeWindow: { onMinimizeWindow(item) }
+                        onMinimizeWindow: { onMinimizeWindow(item) },
+                        onMinimizeOthers: { onMinimizeOthers(item) }
                     )
                     .onTapGesture { onSelect(item.element) }
                 }
@@ -131,6 +135,7 @@ struct WindowThumbnailView: View {
     let appIcon: NSImage?
     let onCloseWindow: () -> Void
     let onMinimizeWindow: () -> Void
+    let onMinimizeOthers: () -> Void
     @State private var isHovered = false
 
     var body: some View {
@@ -179,10 +184,22 @@ struct WindowThumbnailView: View {
                         .frame(width: 160, height: 120, alignment: .topLeading)
                 }
 
-                // Windows-taskbar-style controls, hover-revealed:
-                // minimize (or restore when already minimized) and close.
+                // Windows-taskbar-style controls, hover-revealed: keep only
+                // this window (minimize the app's others), minimize/restore,
+                // and close.
                 if isHovered {
                     HStack(spacing: 4) {
+                        Button(action: onMinimizeOthers) {
+                            Image(systemName: "rectangle.stack.badge.minus")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 17, height: 17)
+                                .background(Circle().fill(Color.accentColor.opacity(0.9)))
+                                .shadow(radius: 1)
+                        }
+                        .buttonStyle(.plain)
+                        .help(tr("只留这个窗口（最小化其他）", "Keep only this window (minimize others)"))
+
                         Button(action: onMinimizeWindow) {
                             Image(systemName: item.isMinimized
                                   ? "arrow.up.forward.circle.fill"

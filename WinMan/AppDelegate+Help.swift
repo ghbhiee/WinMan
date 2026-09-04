@@ -111,7 +111,8 @@ extension AppDelegate {
           不会被一起带出来。
         • Dock 图标始终操作 WinMan 最近处理的那个窗口：最小化 A 之后再点，恢复的
           一定是 A，不会变成同应用的其他窗口。
-        • 悬停缩略图时右上角出现「最小化/恢复」和「关闭」按钮；按 Esc 关闭预览。
+        • 悬停缩略图时右上角出现「只留这个（最小化其他）」「最小化/恢复」「关闭」
+          三个按钮；按 Esc 关闭预览。
         • 蓝色标题 = 最近激活的窗口，即 Dock 点击的操作目标。
         • 接了多台显示器时，缩略图左上角标注窗口所在的屏幕。
         白名单之外的应用完全保持 macOS 原生行为，鼠标悬停不会有任何干扰。
@@ -126,8 +127,8 @@ extension AppDelegate {
           app's other windows stay where they are.
         • The Dock icon always acts on the window WinMan handled last: minimize
           A, click again, and A comes back — never some other window.
-        • Hovering a card reveals minimize/restore and close buttons; Esc
-          closes the preview row.
+        • Hovering a card reveals keep-only-this (minimize the others),
+          minimize/restore, and close buttons; Esc closes the preview row.
         • A blue title marks the last-active window — what a Dock click acts on.
         • With several displays attached, each card notes which screen its
           window is on.

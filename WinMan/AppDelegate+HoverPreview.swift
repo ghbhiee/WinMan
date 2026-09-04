@@ -180,6 +180,9 @@ extension AppDelegate {
                     },
                     onMinimizeWindow: { [weak self] item in
                         self?.toggleMinimizeFromPreview(item, app: app, dockItem: dockItem)
+                    },
+                    onMinimizeOthers: { [weak self] item in
+                        self?.keepOnlyWindowFromPreview(item, app: app)
                     }
                 )
             }
@@ -224,6 +227,22 @@ extension AppDelegate {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             self?.showPreview(for: dockItem)
+        }
+    }
+
+    /// "Keep only this": minimize every other standard window of the app,
+    /// then bring the chosen one forward (restoring it if needed) and pin it
+    /// as the Dock-click target. Ends the preview like a click does.
+    private func keepOnlyWindowFromPreview(_ item: WindowPreviewItem, app: NSRunningApplication) {
+        suppressPreviewAfterAction(for: 1.0)
+        windowTracker.suppressFocusTracking(for: app, interval: 1.5)
+        for window in windowTracker.standardWindowsInStableOrder(for: app)
+        where !windowTracker.isSameWindow(window, item.element) && !windowTracker.isMinimized(window) {
+            windowTracker.minimizeWindow(window)
+        }
+        windowTracker.setLastActiveWindow(item.element, for: app)
+        if !windowTracker.focusWindow(item.element, app: app) {
+            NSSound.beep()
         }
     }
 
