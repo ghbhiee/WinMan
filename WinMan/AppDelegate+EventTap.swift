@@ -98,6 +98,9 @@ extension AppDelegate {
             }
             delegate.rememberFrontmostWindowAfterUserClick()
         case .keyDown:
+            if AppDelegate.handlePreviewKeyDown(event: event, delegate: delegate) {
+                return nil
+            }
             if AppDelegate.handleSwitcherKeyDown(event: event, delegate: delegate) {
                 return nil
             }
@@ -117,6 +120,16 @@ extension AppDelegate {
 
     private static let tabKeyCode: Int64 = 48
     private static let escapeKeyCode: Int64 = 53
+
+    /// Escape closes an open preview row (and is swallowed so the frontmost
+    /// app does not also react to it).
+    static func handlePreviewKeyDown(event: CGEvent, delegate: AppDelegate) -> Bool {
+        guard event.getIntegerValueField(.keyboardEventKeycode) == escapeKeyCode,
+              delegate.previewPanel?.isVisible == true,
+              !delegate.windowSwitcher.isActive else { return false }
+        delegate.suppressPreviewAfterAction(for: 1.0)
+        return true
+    }
 
     /// Returns true when the key event belongs to the switcher and must be
     /// swallowed instead of reaching the frontmost app.

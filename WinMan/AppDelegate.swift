@@ -153,11 +153,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var hoveredDockItem: DockItem?
     var dismissPreviewTimer: Timer?
 
-    // Aero-Peek state: the window temporarily brought forward while its
-    // thumbnail is hovered (see AppDelegate+HoverPreview.swift).
-    var peek: PeekState?
-    var peekStartTimer: Timer?
-    var peekRestoreTimer: Timer?
 
     // Suppress preview for a short period after a user click/right-click action.
     // Time-based avoids the "flag gets stuck" problem that a boolean exit-gate has.

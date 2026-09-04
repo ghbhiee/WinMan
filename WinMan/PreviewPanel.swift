@@ -11,6 +11,8 @@ struct WindowPreviewItem: Identifiable {
     var windowID: CGWindowID?
     /// The window a Dock click will act on — shown with a blue title.
     var isLastActive: Bool = false
+    /// "2 · LG UltraFine" etc. when more than one display is attached.
+    var screenLabel: String? = nil
 }
 
 class PreviewPanel: NSPanel {
@@ -36,7 +38,7 @@ class PreviewPanel: NSPanel {
         nearDockRect dockRect: NSRect,
         onSelect: @escaping (AXUIElement, NSRunningApplication) -> Void,
         onCloseWindow: @escaping (WindowPreviewItem) -> Void,
-        onHoverWindow: @escaping (WindowPreviewItem, Bool) -> Void
+        onMinimizeWindow: @escaping (WindowPreviewItem) -> Void
     ) {
         let screens = NSScreen.screens
         guard let primaryScreenFrame = screens.first?.frame else { return }
@@ -71,7 +73,7 @@ class PreviewPanel: NSPanel {
             appIcon: app.icon,
             onSelect: { element in onSelect(element, app) },
             onCloseWindow: onCloseWindow,
-            onHoverWindow: onHoverWindow
+            onMinimizeWindow: onMinimizeWindow
         )
 
         if let hv = hostingView {
@@ -103,7 +105,7 @@ struct PreviewPanelView: View {
     let appIcon: NSImage?
     let onSelect: (AXUIElement) -> Void
     let onCloseWindow: (WindowPreviewItem) -> Void
-    let onHoverWindow: (WindowPreviewItem, Bool) -> Void
+    let onMinimizeWindow: (WindowPreviewItem) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -113,7 +115,7 @@ struct PreviewPanelView: View {
                         item: item,
                         appIcon: appIcon,
                         onCloseWindow: { onCloseWindow(item) },
-                        onHoverChange: { hovering in onHoverWindow(item, hovering) }
+                        onMinimizeWindow: { onMinimizeWindow(item) }
                     )
                     .onTapGesture { onSelect(item.element) }
                 }
@@ -128,14 +130,11 @@ struct WindowThumbnailView: View {
     let item: WindowPreviewItem
     let appIcon: NSImage?
     let onCloseWindow: () -> Void
-    let onHoverChange: (Bool) -> Void
+    let onMinimizeWindow: () -> Void
     @State private var isHovered = false
-    @State private var titleFlash = false
 
     var body: some View {
         VStack(spacing: 6) {
-            // Title on top; it flashes on hover so the eye lands on the window
-            // that is being peeked at.
             // Blue = the last-active window, i.e. what a Dock click toggles.
             Text(item.title.isEmpty ? "Window" : item.title)
                 .font(.caption.weight(item.isLastActive || isHovered ? .semibold : .regular))
@@ -143,8 +142,6 @@ struct WindowThumbnailView: View {
                 .truncationMode(.middle)
                 .frame(width: 160)
                 .foregroundStyle(item.isLastActive ? Color.accentColor : (isHovered ? Color.primary : Color.secondary))
-                .opacity(titleFlash ? 0.3 : 1.0)
-                .scaleEffect(titleFlash ? 1.06 : 1.0)
 
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 6)
@@ -168,18 +165,47 @@ struct WindowThumbnailView: View {
                         .frame(width: 160, height: 120)
                 }
 
-                // Windows-taskbar-style per-window close button, hover-revealed
+                // Which display the window lives on (multi-display setups only)
+                if let label = item.screenLabel {
+                    Text(label)
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(.thinMaterial))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: 150, alignment: .leading)
+                        .padding(4)
+                        .frame(width: 160, height: 120, alignment: .topLeading)
+                }
+
+                // Windows-taskbar-style controls, hover-revealed:
+                // minimize (or restore when already minimized) and close.
                 if isHovered {
-                    Button(action: onCloseWindow) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 15))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .red.opacity(0.85))
-                            .shadow(radius: 1)
+                    HStack(spacing: 4) {
+                        Button(action: onMinimizeWindow) {
+                            Image(systemName: item.isMinimized
+                                  ? "arrow.up.forward.circle.fill"
+                                  : "minus.circle.fill")
+                                .font(.system(size: 15))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .orange.opacity(0.9))
+                                .shadow(radius: 1)
+                        }
+                        .buttonStyle(.plain)
+                        .help(item.isMinimized ? tr("恢复窗口", "Restore window") : tr("最小化窗口", "Minimize window"))
+
+                        Button(action: onCloseWindow) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 15))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .red.opacity(0.85))
+                                .shadow(radius: 1)
+                        }
+                        .buttonStyle(.plain)
+                        .help(tr("关闭窗口", "Close window"))
                     }
-                    .buttonStyle(.plain)
                     .padding(4)
-                    .help(tr("关闭窗口", "Close window"))
                 }
             }
         }
@@ -195,20 +221,7 @@ struct WindowThumbnailView: View {
         .shadow(radius: 8, y: 3)
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(.easeInOut(duration: 0.12), value: isHovered)
-        .onHover { hovering in
-            isHovered = hovering
-            onHoverChange(hovering)
-            if hovering {
-                withAnimation(.easeInOut(duration: 0.12).repeatCount(5, autoreverses: true)) {
-                    titleFlash = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
-                    withAnimation(.easeOut(duration: 0.1)) { titleFlash = false }
-                }
-            } else {
-                titleFlash = false
-            }
-        }
+        .onHover { hovering in isHovered = hovering }
     }
 }
 

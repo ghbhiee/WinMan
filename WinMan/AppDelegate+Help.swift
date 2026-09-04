@@ -106,12 +106,14 @@ extension AppDelegate {
         对白名单里的应用（默认 Finder 和 Chrome，可在设置中增删），WinMan 把每个窗口
         当作独立的「视图」来管理，像 Windows 任务栏一样：
         • 鼠标停在 Dock 图标上即显示各窗口的预览，移到预览再点击即可打开该窗口；
-          预览已显示时滑到相邻图标会立即切换。
+          预览已显示时滑到相邻图标会立即切换。点击卡片才会把窗口拉到前台。
         • 打开或恢复某个窗口时，只有这个窗口会到前面，同应用的其他窗口留在原处，
           不会被一起带出来。
         • Dock 图标始终操作 WinMan 最近处理的那个窗口：最小化 A 之后再点，恢复的
           一定是 A，不会变成同应用的其他窗口。
-        • 悬停缩略图时右上角出现 ✕，点击可直接关闭该窗口。
+        • 悬停缩略图时右上角出现「最小化/恢复」和「关闭」按钮；按 Esc 关闭预览。
+        • 蓝色标题 = 最近激活的窗口，即 Dock 点击的操作目标。
+        • 接了多台显示器时，缩略图左上角标注窗口所在的屏幕。
         白名单之外的应用完全保持 macOS 原生行为，鼠标悬停不会有任何干扰。
         """, """
         For allowlisted apps (Finder and Chrome by default; edit the list in
@@ -124,7 +126,11 @@ extension AppDelegate {
           app's other windows stay where they are.
         • The Dock icon always acts on the window WinMan handled last: minimize
           A, click again, and A comes back — never some other window.
-        • Hover a thumbnail and click the ✕ in its corner to close that window.
+        • Hovering a card reveals minimize/restore and close buttons; Esc
+          closes the preview row.
+        • A blue title marks the last-active window — what a Dock click acts on.
+        • With several displays attached, each card notes which screen its
+          window is on.
         Apps outside the allowlist keep native macOS behavior; hovering their
         icons does nothing.
         """), font: .systemFont(ofSize: 13))
