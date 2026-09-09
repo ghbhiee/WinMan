@@ -15,6 +15,14 @@ struct WindowPreviewItem: Identifiable {
     var screenLabel: String? = nil
 }
 
+/// NSHostingView delivers the first click in a non-key window to the view.
+/// Without this, AppKit spends that click on making the panel key and the
+/// card's tap gesture never fires — the "click does nothing the first time"
+/// bug after the panel has been idle.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 class PreviewPanel: NSPanel {
     private var hostingView: NSHostingView<PreviewPanelView>?
 
@@ -30,6 +38,8 @@ class PreviewPanel: NSPanel {
         self.backgroundColor = NSColor.clear
         self.hasShadow = true
         self.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        // Never take key status for a click; clicks go straight to the cards.
+        self.becomesKeyOnlyIfNeeded = true
     }
 
     func show(
@@ -82,7 +92,7 @@ class PreviewPanel: NSPanel {
             hv.rootView = view
             hv.frame = NSRect(origin: .zero, size: frame.size)
         } else {
-            let hv = NSHostingView(rootView: view)
+            let hv = FirstMouseHostingView(rootView: view)
             hv.frame = NSRect(origin: .zero, size: frame.size)
             self.contentView = hv
             self.hostingView = hv

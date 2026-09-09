@@ -67,7 +67,12 @@ extension AppDelegate {
         case .leftHoverArea:
             delegate.hoverTimer?.invalidate()
             delegate.hoverTimer = nil
-            delegate.hoveredDockItem = nil
+            // While a preview is still being built, keep the hovered item: the
+            // pointer is usually already heading to where the panel will
+            // appear, and clearing it here would cancel the show.
+            if delegate.previewPending == nil {
+                delegate.hoveredDockItem = nil
+            }
 
             if delegate.previewPanel?.isVisible == true, delegate.dismissPreviewTimer == nil {
                 delegate.dismissPreviewTimer = Timer.scheduledTimer(
@@ -110,53 +115,63 @@ extension AppDelegate {
         let apps = NSWorkspace.shared.runningApplications
         guard let app = apps.first(where: { self.matches(app: $0, dockItem: dockItem) }) else { return }
 
-        // Fixed order (creation order) so cards never shuffle; the last-active
-        // window — what a Dock click toggles — is flagged instead.
-        let axWindows = windowTracker.standardWindowsInStableOrder(for: app)
-        guard axWindows.count >= minimumPreviewWindowCount else { return }
-        let lastActive = windowTracker.lastActiveWindow(in: axWindows, for: app)
-        let screenLabels = screenLabelsByWindowID(for: app)
-
-        // Collect metadata on the main thread; window imaging happens off it so
-        // the event tap callback is never blocked by slow captures.
-        var items: [WindowPreviewItem] = []
-        for axWindow in axWindows {
-            let title = windowTracker.windowTitle(axWindow) ?? ""
-            let wid = windowTracker.windowID(axWindow)
-            let minimized = windowTracker.isMinimized(axWindow)
-
-            let itemID: String
-            if let wid {
-                itemID = "cg:\(wid)"
-            } else {
-                let pointer = Unmanaged.passUnretained(axWindow).toOpaque()
-                itemID = "ax:\(UInt(bitPattern: pointer))"
-            }
-            items.append(WindowPreviewItem(
-                id: itemID, element: axWindow, title: title,
-                thumbnail: nil, isMinimized: minimized, windowID: wid,
-                isLastActive: lastActive.map { windowTracker.isSameWindow($0, axWindow) } ?? false,
-                screenLabel: wid.flatMap { screenLabels[$0] }
-            ))
-        }
-
-        guard !items.isEmpty else { return }
-
+        // Main-thread-only reads, captured before going to the background.
+        let tracker = windowTracker
+        let lastActive = tracker.lastActiveWindow(for: app)
+        let minimum = minimumPreviewWindowCount
         let canCapture = CGPreflightScreenCaptureAccess()
+        let screens = NSScreen.screens.map { (frame: $0.frame, name: $0.localizedName) }
+        previewPending = dockItem
+
+        // Every AX round trip runs off the main thread. After the Mac has sat
+        // idle the target app is often napping and each call can take the
+        // full 0.25s messaging timeout; doing that on main would stall the
+        // event tap and drop the mouse events that keep the preview alive.
         previewBuildQueue.async { [weak self] in
-            let readyItems = items.map { item -> WindowPreviewItem in
-                guard canCapture, !item.isMinimized, let wid = item.windowID else { return item }
-                var updated = item
-                updated.thumbnail = captureWindowThumbnail(
-                    windowID: wid,
-                    targetSize: CGSize(width: 156, height: 116)
+            // Fixed order (creation order) so cards never shuffle; the
+            // last-active window — what a Dock click toggles — is flagged.
+            let axWindows = tracker.standardWindowsInStableOrder(for: app)
+            guard axWindows.count >= minimum else {
+                DispatchQueue.main.async { self?.finishPendingPreview(dockItem) }
+                return
+            }
+            let lastActiveInList = lastActive.flatMap { last in
+                axWindows.first { tracker.isSameWindow($0, last) }
+            }
+            let screenLabels = Self.screenLabelsByWindowID(for: app, screens: screens)
+
+            var items: [WindowPreviewItem] = []
+            for axWindow in axWindows {
+                let title = tracker.windowTitle(axWindow) ?? ""
+                let wid = tracker.windowID(axWindow)
+                let minimized = tracker.isMinimized(axWindow)
+
+                let itemID: String
+                if let wid {
+                    itemID = "cg:\(wid)"
+                } else {
+                    let pointer = Unmanaged.passUnretained(axWindow).toOpaque()
+                    itemID = "ax:\(UInt(bitPattern: pointer))"
+                }
+                var item = WindowPreviewItem(
+                    id: itemID, element: axWindow, title: title,
+                    thumbnail: nil, isMinimized: minimized, windowID: wid,
+                    isLastActive: lastActiveInList.map { tracker.isSameWindow($0, axWindow) } ?? false,
+                    screenLabel: wid.flatMap { screenLabels[$0] }
                 )
-                return updated
+                if canCapture, !minimized, let wid {
+                    item.thumbnail = captureWindowThumbnail(
+                        windowID: wid,
+                        targetSize: CGSize(width: 156, height: 116)
+                    )
+                }
+                items.append(item)
             }
 
             DispatchQueue.main.async {
                 guard let self else { return }
-                // The pointer may have moved on while thumbnails were captured.
+                self.finishPendingPreview(dockItem)
+                // The pointer may have moved on while the row was built.
                 guard self.isPreviewEnabled,
                       self.hoveredDockItem?.identity == dockItem.identity,
                       Date() >= self.suppressPreviewUntil else { return }
@@ -164,7 +179,7 @@ extension AppDelegate {
                 if self.previewPanel == nil { self.previewPanel = PreviewPanel() }
 
                 self.previewPanel?.show(
-                    for: app, windows: readyItems, nearDockRect: dockItem.rect,
+                    for: app, windows: items, nearDockRect: dockItem.rect,
                     onSelect: { [weak self] element, app in
                         guard let self else { return }
                         self.dismissPreview()
@@ -189,11 +204,19 @@ extension AppDelegate {
         }
     }
 
+    private func finishPendingPreview(_ dockItem: DockItem) {
+        if previewPending?.identity == dockItem.identity {
+            previewPending = nil
+        }
+    }
+
     /// "2 · LG UltraFine"-style label per window, only when several displays
     /// are attached. Uses the window's last known bounds so minimized windows
     /// are labeled too.
-    private func screenLabelsByWindowID(for app: NSRunningApplication) -> [CGWindowID: String] {
-        let screens = NSScreen.screens
+    private static func screenLabelsByWindowID(
+        for app: NSRunningApplication,
+        screens: [(frame: CGRect, name: String)]
+    ) -> [CGWindowID: String] {
         guard screens.count > 1, let primary = screens.first?.frame else { return [:] }
         let list = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]) ?? []
         var labels: [CGWindowID: String] = [:]
@@ -207,7 +230,7 @@ extension AppDelegate {
             let index = screens.firstIndex(where: { $0.frame.contains(center) })
                 ?? screens.firstIndex(where: { $0.frame.intersects(rect) })
             if let index {
-                labels[wid] = "\(index + 1) · \(screens[index].localizedName)"
+                labels[wid] = "\(index + 1) · \(screens[index].name)"
             }
         }
         return labels

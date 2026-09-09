@@ -152,6 +152,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var hoverTimer: Timer?
     var hoveredDockItem: DockItem?
     var dismissPreviewTimer: Timer?
+    // Dock item whose preview is being built on the background queue.
+    var previewPending: DockItem?
 
 
     // Suppress preview for a short period after a user click/right-click action.
