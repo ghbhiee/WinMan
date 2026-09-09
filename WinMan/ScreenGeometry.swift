@@ -41,12 +41,13 @@ enum ScreenGeometry {
 
     /// Width that exactly fits the card row: 176pt cards (160pt thumbnail +
     /// 8pt card padding each side), 10pt spacing, 10pt horizontal padding on
-    /// each side — clamped to the screen.
+    /// each side — clamped to the screen so every card that fits is visible
+    /// without scrolling.
     static func previewPanelWidth(windowCount: Int, screenWidth: CGFloat) -> CGFloat {
         let contentWidth = CGFloat(windowCount) * 176
             + CGFloat(max(0, windowCount - 1)) * 10
             + 20
-        return min(contentWidth, min(760, max(200, screenWidth - 16)))
+        return min(contentWidth, max(200, screenWidth - 16))
     }
 
     static func previewFrame(

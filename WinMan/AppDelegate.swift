@@ -154,6 +154,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var dismissPreviewTimer: Timer?
     // Dock item whose preview is being built on the background queue.
     var previewPending: DockItem?
+    // Dock item the visible preview row belongs to (anchor for the corridor).
+    var previewDockItem: DockItem?
 
 
     // Suppress preview for a short period after a user click/right-click action.

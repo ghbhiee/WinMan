@@ -152,6 +152,13 @@ enum InteractionPolicyTests {
             hitItemIdentity: "other", hitItemIsManaged: false, hoveredIdentity: "a",
             isOverPanel: false, isSuppressed: false
         ) == .leftHoverArea)
+
+        // …unless that icon sits under the visible row: sliding along the Dock
+        // toward a far card keeps the row up
+        check(HoverPolicy.response(
+            hitItemIdentity: "other", hitItemIsManaged: false, hitItemIsUnderPanel: true,
+            hoveredIdentity: "a", isOverPanel: false, isSuppressed: false
+        ) == .stayOnPanel)
     }
 
     private static func check(

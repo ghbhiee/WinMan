@@ -5,8 +5,12 @@ import CoreGraphics
 // HoverPolicy; this file owns the timers and panel side effects.
 extension AppDelegate {
 
-    func dismissPreview() {
+    func dismissPreview(reason: String = "unspecified") {
+        if previewPanel?.isVisible == true {
+            WinManLog.app.debug("[hover] dismiss (\(reason, privacy: .public))")
+        }
         previewPanel?.dismiss()
+        previewDockItem = nil
     }
 
     /// After a click or right-click action, hover preview is suppressed for a
@@ -18,20 +22,27 @@ extension AppDelegate {
         hoverTimer = nil
         dismissPreviewTimer?.invalidate()
         dismissPreviewTimer = nil
-        dismissPreview()
+        dismissPreview(reason: "suppressPreviewAfterAction")
     }
 
     static func handleMouseMoved(location: CGPoint, delegate: AppDelegate) {
         delegate.dockMonitor.refreshIfNeeded(near: location)
 
         let hitItem = delegate.dockMonitor.items.first(where: { $0.rect.contains(location) })
+        let rowFrame = delegate.previewPanel.flatMap { $0.isVisible ? $0.frame : nil }
+        let hitUnderRow = hitItem.flatMap { item in rowFrame.map { $0.minX...$0.maxX ~= item.rect.midX } } ?? false
         let response = HoverPolicy.response(
             hitItemIdentity: hitItem?.identity,
             hitItemIsManaged: hitItem.map(delegate.isManaged) ?? false,
+            hitItemIsUnderPanel: hitUnderRow,
             hoveredIdentity: delegate.hoveredDockItem?.identity,
             isOverPanel: delegate.isLocationOverPanel(location),
             isSuppressed: Date() < delegate.suppressPreviewUntil
         )
+
+        if let panel = delegate.previewPanel, panel.isVisible {
+            WinManLog.app.debug("[hover] \(String(describing: response), privacy: .public) at (\(Int(location.x)),\(Int(location.y))) hit=\(hitItem?.name ?? "-", privacy: .public) hovered=\(delegate.hoveredDockItem?.name ?? "-", privacy: .public) panel=\(NSStringFromRect(panel.frame), privacy: .public)")
+        }
 
         switch response {
         case .suppressed:
@@ -40,15 +51,26 @@ extension AppDelegate {
             delegate.hoverTimer = nil
 
         case .beginHover:
-            // Moved to a different dock item — dismiss previous panel and restart timer
+            // Moved to a different dock item — restart the hover timer. The
+            // current row (if any) stays up until the new one is ready, so a
+            // pointer that merely brushes another icon on its way into the
+            // row never tears it down.
             guard let dockItem = hitItem else { return }
+            let panelVisible = delegate.previewPanel?.isVisible == true
             // Like the Windows taskbar: once a preview is up, sliding to the
-            // next icon switches previews immediately instead of re-waiting.
-            let delay = delegate.previewPanel?.isVisible == true ? 0.08 : delegate.hoverDelay
+            // next icon switches previews quickly. An icon that sits *under*
+            // the current row is a likely fly-over, so it needs a real pause.
+            let delay: TimeInterval
+            if !panelVisible {
+                delay = delegate.hoverDelay
+            } else if let frame = delegate.previewPanel?.frame, frame.minX...frame.maxX ~= dockItem.rect.midX {
+                delay = 0.3
+            } else {
+                delay = 0.08
+            }
             delegate.dismissPreviewTimer?.invalidate()
             delegate.dismissPreviewTimer = nil
             delegate.hoverTimer?.invalidate()
-            delegate.dismissPreview()
             delegate.hoveredDockItem = dockItem
 
             delegate.hoverTimer = Timer.scheduledTimer(
@@ -59,10 +81,22 @@ extension AppDelegate {
                 DispatchQueue.main.async { delegate.showPreview(for: dockItem) }
             }
 
-        case .stayOnItem, .stayOnPanel:
+        case .stayOnItem:
             // Keep the panel alive — cancel any pending dismiss
             delegate.dismissPreviewTimer?.invalidate()
             delegate.dismissPreviewTimer = nil
+
+        case .stayOnPanel:
+            // Inside the row: cancel any pending dismiss, and cancel a switch
+            // to another icon the pointer brushed on the way in.
+            delegate.dismissPreviewTimer?.invalidate()
+            delegate.dismissPreviewTimer = nil
+            if let anchor = delegate.previewDockItem,
+               delegate.hoveredDockItem?.identity != anchor.identity {
+                delegate.hoverTimer?.invalidate()
+                delegate.hoverTimer = nil
+                delegate.hoveredDockItem = anchor
+            }
 
         case .leftHoverArea:
             delegate.hoverTimer?.invalidate()
@@ -79,7 +113,7 @@ extension AppDelegate {
                     withTimeInterval: 0.4,
                     repeats: false
                 ) { [weak delegate] _ in
-                    DispatchQueue.main.async { delegate?.dismissPreview() }
+                    DispatchQueue.main.async { delegate?.dismissPreview(reason: "leftHoverArea timer") }
                     delegate?.dismissPreviewTimer = nil
                 }
             }
@@ -87,9 +121,12 @@ extension AppDelegate {
     }
 
     func isLocationOverPanel(_ location: CGPoint) -> Bool {
+        // Anchored on the item the row was shown for, not on the transient
+        // hovered item, so brushing another icon cannot make a pointer that is
+        // physically inside the row count as "outside".
         guard let panel = previewPanel,
               panel.isVisible,
-              let dockItem = hoveredDockItem,
+              let dockItem = previewDockItem ?? hoveredDockItem,
               let primaryScreenFrame = NSScreen.screens.first?.frame else {
             return false
         }
@@ -177,6 +214,7 @@ extension AppDelegate {
                       Date() >= self.suppressPreviewUntil else { return }
 
                 if self.previewPanel == nil { self.previewPanel = PreviewPanel() }
+                self.previewDockItem = dockItem
 
                 self.previewPanel?.show(
                     for: app, windows: items, nearDockRect: dockItem.rect,

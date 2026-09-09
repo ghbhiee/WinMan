@@ -98,8 +98,10 @@ struct ScreenGeometryTests {
     private static func testPanelWidth() {
         // 2 windows: 2*176 + 10 spacing + 20 padding
         expect(ScreenGeometry.previewPanelWidth(windowCount: 2, screenWidth: 1920) == 382)
-        // Wide dock never exceeds the 760 cap
-        expect(ScreenGeometry.previewPanelWidth(windowCount: 10, screenWidth: 1920) == 760)
+        // 10 windows fit on a wide screen without scrolling
+        expect(ScreenGeometry.previewPanelWidth(windowCount: 10, screenWidth: 1920) == 1870)
+        // …but never wider than the screen minus margin
+        expect(ScreenGeometry.previewPanelWidth(windowCount: 20, screenWidth: 1920) == 1904)
         // Narrow screen clamps to screen width minus margin
         expect(ScreenGeometry.previewPanelWidth(windowCount: 4, screenWidth: 640) == 624)
     }
