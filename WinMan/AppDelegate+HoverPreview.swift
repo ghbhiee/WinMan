@@ -29,19 +29,23 @@ extension AppDelegate {
         delegate.dockMonitor.refreshIfNeeded(near: location)
 
         let hitItem = delegate.dockMonitor.items.first(where: { $0.rect.contains(location) })
+        delegate.updatePointerHeading(location)
         let rowFrame = delegate.previewPanel.flatMap { $0.isVisible ? $0.frame : nil }
         let hitUnderRow = hitItem.flatMap { item in rowFrame.map { $0.minX...$0.maxX ~= item.rect.midX } } ?? false
+        // Only a pointer that is actually heading into the row gets the
+        // fly-over allowance; sliding sideways along the Dock means leaving.
+        let flyingOver = hitUnderRow && delegate.isPointerHeadingIntoRow()
         let response = HoverPolicy.response(
             hitItemIdentity: hitItem?.identity,
             hitItemIsManaged: hitItem.map(delegate.isManaged) ?? false,
-            hitItemIsUnderPanel: hitUnderRow,
+            hitItemIsUnderPanel: flyingOver,
             hoveredIdentity: delegate.hoveredDockItem?.identity,
             isOverPanel: delegate.isLocationOverPanel(location),
             isSuppressed: Date() < delegate.suppressPreviewUntil
         )
 
         if let panel = delegate.previewPanel, panel.isVisible {
-            WinManLog.app.debug("[hover] \(String(describing: response), privacy: .public) at (\(Int(location.x)),\(Int(location.y))) hit=\(hitItem?.name ?? "-", privacy: .public) hovered=\(delegate.hoveredDockItem?.name ?? "-", privacy: .public) panel=\(NSStringFromRect(panel.frame), privacy: .public)")
+            WinManLog.app.debug("[hover] \(String(describing: response), privacy: .public) at (\(Int(location.x)),\(Int(location.y))) hit=\(hitItem?.name ?? "-", privacy: .public) hovered=\(delegate.hoveredDockItem?.name ?? "-", privacy: .public) fly=\(flyingOver) heading=(\(Int(delegate.pointerHeading.dx)),\(Int(delegate.pointerHeading.dy))) panel=\(NSStringFromRect(panel.frame), privacy: .public)")
         }
 
         switch response {
@@ -114,8 +118,11 @@ extension AppDelegate {
             }
 
             if delegate.previewPanel?.isVisible == true, delegate.dismissPreviewTimer == nil {
+                // Leaving onto another Dock icon is deliberate — close fast.
+                // Leaving upward/outward may be an overshoot — allow a return.
+                let grace: TimeInterval = hitItem != nil ? 0.2 : 0.4
                 delegate.dismissPreviewTimer = Timer.scheduledTimer(
-                    withTimeInterval: 0.4,
+                    withTimeInterval: grace,
                     repeats: false
                 ) { [weak delegate] _ in
                     DispatchQueue.main.async { delegate?.dismissPreview(reason: "leftHoverArea timer") }
@@ -123,6 +130,56 @@ extension AppDelegate {
                 }
             }
         }
+    }
+
+    /// Exponential moving average of the pointer's motion so a single jittery
+    /// sample cannot flip the "heading into the row" decision.
+    func updatePointerHeading(_ location: CGPoint) {
+        let now = ProcessInfo.processInfo.systemUptime
+        defer { lastPointerLocation = location; lastPointerTime = now }
+        guard let previous = lastPointerLocation else { return }
+        let step = CGVector(dx: location.x - previous.x, dy: location.y - previous.y)
+        // After a pause, or a teleport-sized jump, the next movement is a new
+        // gesture: start from its own first sample instead of stale momentum.
+        if now - lastPointerTime > 0.12 || abs(step.dx) + abs(step.dy) > 400 {
+            pointerHeading = step
+            return
+        }
+        pointerHeading = CGVector(
+            dx: pointerHeading.dx * 0.5 + step.dx * 0.5,
+            dy: pointerHeading.dy * 0.5 + step.dy * 0.5
+        )
+    }
+
+    /// True when the smoothed heading has a real component toward the row
+    /// (cosine ≥ 0.2, about 12° above the Dock — a far card in a wide row is
+    /// reached at a shallow angle), i.e. the pointer is climbing into the row
+    /// rather than traveling along the Dock.
+    func isPointerHeadingIntoRow() -> Bool {
+        guard let panel = previewPanel, panel.isVisible,
+              let anchor = previewDockItem ?? hoveredDockItem,
+              let primary = NSScreen.screens.first?.frame else { return false }
+        // Panel frame back to Quartz coordinates (the conversion is its own inverse).
+        let rowQuartz = ScreenGeometry.appKitRect(fromQuartz: panel.frame, primaryScreenFrame: primary)
+        let heading = pointerHeading
+        let speed = (heading.dx * heading.dx + heading.dy * heading.dy).squareRoot()
+        guard speed > 0.5 else { return false }
+        // "Into the row" is the direction perpendicular to the Dock edge the
+        // row hangs off (bottom Dock: up), never the diagonal toward the row's
+        // center — a wide row's center is far to the side, which would make
+        // plain sideways sliding look like an approach.
+        let intoRow: CGVector
+        if rowQuartz.maxY <= anchor.rect.minY {
+            intoRow = CGVector(dx: 0, dy: -1)       // row above the Dock (Quartz y grows downward)
+        } else if rowQuartz.minY >= anchor.rect.maxY {
+            intoRow = CGVector(dx: 0, dy: 1)        // row below (top Dock)
+        } else if rowQuartz.minX >= anchor.rect.maxX {
+            intoRow = CGVector(dx: 1, dy: 0)        // row to the right (left Dock)
+        } else {
+            intoRow = CGVector(dx: -1, dy: 0)       // row to the left (right Dock)
+        }
+        let cosine = (heading.dx * intoRow.dx + heading.dy * intoRow.dy) / speed
+        return cosine >= 0.2
     }
 
     func isLocationOverPanel(_ location: CGPoint) -> Bool {

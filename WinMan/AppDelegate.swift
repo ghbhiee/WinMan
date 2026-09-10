@@ -162,6 +162,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var previewPending: DockItem?
     // Dock item the visible preview row belongs to (anchor for the corridor).
     var previewDockItem: DockItem?
+    // Smoothed pointer heading (Quartz coords) from recent mouse-moved events,
+    // used to tell "climbing into the row" from "sliding along the Dock".
+    var pointerHeading = CGVector.zero
+    var lastPointerLocation: CGPoint?
+    var lastPointerTime: TimeInterval = 0
 
 
     // Suppress preview for a short period after a user click/right-click action.

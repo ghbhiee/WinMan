@@ -83,9 +83,10 @@ enum HoverPolicy {
     /// `hitItemIsManaged`: previews exist only for allowlisted apps. Hovering a
     /// non-managed dock item behaves like leaving the hover area entirely, so
     /// other apps never see a panel or a timer.
-    /// `hitItemIsUnderPanel`: the icon sits below the visible row. Sliding
-    /// along the Dock underneath the row toward a far card must not tear the
-    /// row down, so a non-managed icon there counts as staying on the panel.
+    /// `hitItemIsUnderPanel`: the icon sits below the visible row *and* the
+    /// pointer is heading into the row (caller decides from its motion). Such a
+    /// fly-over toward a far card must not tear the row down; a pointer merely
+    /// sliding along the Dock does not qualify and counts as leaving.
     static func response(
         hitItemIdentity: String?,
         hitItemIsManaged: Bool,
