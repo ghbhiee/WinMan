@@ -11,8 +11,10 @@ struct WindowPreviewItem: Identifiable {
     var windowID: CGWindowID?
     /// The window a Dock click will act on — shown with a blue title.
     var isLastActive: Bool = false
-    /// "2 · LG UltraFine" etc. when more than one display is attached.
+    /// Secondary display name when the window is not on the built-in screen.
     var screenLabel: String? = nil
+    /// 1-based position in the row, shown before the title.
+    var index: Int = 0
 }
 
 /// NSHostingView delivers the first click in a non-key window to the view.
@@ -150,15 +152,31 @@ struct WindowThumbnailView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            // Blue = the last-active window, i.e. what a Dock click toggles.
-            Text(item.title.isEmpty ? "Window" : item.title)
-                .font(.caption.weight(item.isLastActive || isHovered ? .semibold : .regular))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(width: 160)
-                .foregroundStyle(item.isLastActive ? Color.accentColor : (isHovered ? Color.primary : Color.secondary))
+            // Title row: "N · title" on the left, monochrome controls on the
+            // right (hover-revealed). Blue title = last-active window, i.e.
+            // what a Dock click toggles.
+            HStack(spacing: 4) {
+                Text((item.index > 0 ? "\(item.index) · " : "") + (item.title.isEmpty ? "Window" : item.title))
+                    .font(.caption.weight(item.isLastActive || isHovered ? .semibold : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(item.isLastActive ? Color.accentColor : (isHovered ? Color.primary : Color.secondary))
+                Spacer(minLength: 0)
+                if isHovered {
+                    controlButton("rectangle.stack.badge.minus",
+                                  help: tr("只留这个窗口（最小化其他）", "Keep only this window (minimize others)"),
+                                  action: onMinimizeOthers)
+                    controlButton(item.isMinimized ? "arrow.up.right.square" : "minus.square",
+                                  help: item.isMinimized ? tr("恢复窗口", "Restore window") : tr("最小化窗口", "Minimize window"),
+                                  action: onMinimizeWindow)
+                    controlButton("xmark.square",
+                                  help: tr("关闭窗口", "Close window"),
+                                  action: onCloseWindow)
+                }
+            }
+            .frame(width: 160, height: 16)
 
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isHovered
                           ? Color.accentColor.opacity(0.18)
@@ -171,6 +189,7 @@ struct WindowThumbnailView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 156, height: 116)
                         .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .frame(width: 160, height: 120)
                 } else if let icon = appIcon {
                     Image(nsImage: icon)
                         .resizable()
@@ -180,7 +199,7 @@ struct WindowThumbnailView: View {
                         .frame(width: 160, height: 120)
                 }
 
-                // Which display the window lives on (multi-display setups only)
+                // Secondary display the window lives on (built-in shows nothing)
                 if let label = item.screenLabel {
                     Text(label)
                         .font(.caption2)
@@ -191,48 +210,6 @@ struct WindowThumbnailView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: 150, alignment: .leading)
                         .padding(4)
-                        .frame(width: 160, height: 120, alignment: .topLeading)
-                }
-
-                // Windows-taskbar-style controls, hover-revealed: keep only
-                // this window (minimize the app's others), minimize/restore,
-                // and close.
-                if isHovered {
-                    HStack(spacing: 4) {
-                        Button(action: onMinimizeOthers) {
-                            Image(systemName: "rectangle.stack.badge.minus")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 17, height: 17)
-                                .background(Circle().fill(Color.accentColor.opacity(0.9)))
-                                .shadow(radius: 1)
-                        }
-                        .buttonStyle(.plain)
-                        .help(tr("只留这个窗口（最小化其他）", "Keep only this window (minimize others)"))
-
-                        Button(action: onMinimizeWindow) {
-                            Image(systemName: item.isMinimized
-                                  ? "arrow.up.forward.circle.fill"
-                                  : "minus.circle.fill")
-                                .font(.system(size: 15))
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .orange.opacity(0.9))
-                                .shadow(radius: 1)
-                        }
-                        .buttonStyle(.plain)
-                        .help(item.isMinimized ? tr("恢复窗口", "Restore window") : tr("最小化窗口", "Minimize window"))
-
-                        Button(action: onCloseWindow) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 15))
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .red.opacity(0.85))
-                                .shadow(radius: 1)
-                        }
-                        .buttonStyle(.plain)
-                        .help(tr("关闭窗口", "Close window"))
-                    }
-                    .padding(4)
                 }
             }
         }
@@ -249,6 +226,19 @@ struct WindowThumbnailView: View {
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(.easeInOut(duration: 0.12), value: isHovered)
         .onHover { hovering in isHovered = hovering }
+    }
+
+    /// Single-weight line icon, secondary until hovered — one visual family.
+    private func controlButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 

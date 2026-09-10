@@ -46,9 +46,14 @@ extension AppDelegate {
 
         switch response {
         case .suppressed:
-            // Cancel any hover timer that might be running, but don't start a new one
+            // Cancel any hover timer that might be running, but don't start a
+            // new one. Also forget the hovered item: when the pointer comes
+            // back after the suppression window it must count as *entering*
+            // the icon (beginHover), not as still sitting on it — otherwise a
+            // quick leave-and-return after a Dock click never shows a preview.
             delegate.hoverTimer?.invalidate()
             delegate.hoverTimer = nil
+            delegate.hoveredDockItem = nil
 
         case .beginHover:
             // Moved to a different dock item — restart the hover timer. The
@@ -157,7 +162,11 @@ extension AppDelegate {
         let lastActive = tracker.lastActiveWindow(for: app)
         let minimum = minimumPreviewWindowCount
         let canCapture = CGPreflightScreenCaptureAccess()
-        let screens = NSScreen.screens.map { (frame: $0.frame, name: $0.localizedName) }
+        let screens = NSScreen.screens.map { screen -> (frame: CGRect, name: String, isBuiltin: Bool) in
+            let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)
+                .map { CGDirectDisplayID($0.uint32Value) }
+            return (screen.frame, screen.localizedName, displayID.map { CGDisplayIsBuiltin($0) != 0 } ?? false)
+        }
         previewPending = dockItem
 
         // Every AX round trip runs off the main thread. After the Mac has sat
@@ -178,7 +187,7 @@ extension AppDelegate {
             let screenLabels = Self.screenLabelsByWindowID(for: app, screens: screens)
 
             var items: [WindowPreviewItem] = []
-            for axWindow in axWindows {
+            for (position, axWindow) in axWindows.enumerated() {
                 let title = tracker.windowTitle(axWindow) ?? ""
                 let wid = tracker.windowID(axWindow)
                 let minimized = tracker.isMinimized(axWindow)
@@ -194,7 +203,8 @@ extension AppDelegate {
                     id: itemID, element: axWindow, title: title,
                     thumbnail: nil, isMinimized: minimized, windowID: wid,
                     isLastActive: lastActiveInList.map { tracker.isSameWindow($0, axWindow) } ?? false,
-                    screenLabel: wid.flatMap { screenLabels[$0] }
+                    screenLabel: wid.flatMap { screenLabels[$0] },
+                    index: position + 1
                 )
                 if canCapture, !minimized, let wid {
                     item.thumbnail = captureWindowThumbnail(
@@ -248,12 +258,12 @@ extension AppDelegate {
         }
     }
 
-    /// "2 · LG UltraFine"-style label per window, only when several displays
-    /// are attached. Uses the window's last known bounds so minimized windows
-    /// are labeled too.
+    /// Display name per window for windows on a *secondary* display; the
+    /// built-in screen is the default and gets no label. Uses the window's
+    /// last known bounds so minimized windows are labeled too.
     private static func screenLabelsByWindowID(
         for app: NSRunningApplication,
-        screens: [(frame: CGRect, name: String)]
+        screens: [(frame: CGRect, name: String, isBuiltin: Bool)]
     ) -> [CGWindowID: String] {
         guard screens.count > 1, let primary = screens.first?.frame else { return [:] }
         let list = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]) ?? []
@@ -267,8 +277,8 @@ extension AppDelegate {
             let center = CGPoint(x: rect.midX, y: rect.midY)
             let index = screens.firstIndex(where: { $0.frame.contains(center) })
                 ?? screens.firstIndex(where: { $0.frame.intersects(rect) })
-            if let index {
-                labels[wid] = "\(index + 1) · \(screens[index].name)"
+            if let index, !screens[index].isBuiltin {
+                labels[wid] = screens[index].name
             }
         }
         return labels

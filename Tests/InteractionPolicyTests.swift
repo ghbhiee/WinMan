@@ -6,7 +6,16 @@ enum InteractionPolicyTests {
         testManagedClickPolicy()
         testHoverPolicy()
         testSwitcherPolicy()
+        testSemanticVersion()
         print("InteractionPolicyTests passed")
+    }
+
+    private static func testSemanticVersion() {
+        check(SemanticVersion.compare("v1.3.1", "1.3.0") > 0)
+        check(SemanticVersion.compare("1.3.0", "v1.3.0") == 0)
+        check(SemanticVersion.compare("1.10.0", "1.9.9") > 0)
+        check(SemanticVersion.compare("1.3", "1.3.0") == 0)
+        check(SemanticVersion.compare("1.2.9", "1.3") < 0)
     }
 
     private static func testManagedClickPolicy() {

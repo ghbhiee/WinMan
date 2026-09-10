@@ -225,7 +225,7 @@ extension AppDelegate {
                 return false
             }
 
-            delegate.suppressPreviewAfterAction(for: 1.5)
+            delegate.suppressPreviewAfterAction(for: 1.0)
             return true
         }
         return false
@@ -276,7 +276,7 @@ extension AppDelegate {
             WinManLog.app.debug("[managed] window operation failed; passing the Dock click through")
             return false
         }
-        delegate.suppressPreviewAfterAction(for: 1.5)
+        delegate.suppressPreviewAfterAction(for: 1.0)
         return true
     }
 

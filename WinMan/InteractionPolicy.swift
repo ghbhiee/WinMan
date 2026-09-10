@@ -120,3 +120,26 @@ enum SwitcherPolicy {
         return reversed ? (index - 1 + count) % count : (index + 1) % count
     }
 }
+
+// MARK: - Versions
+
+enum SemanticVersion {
+    /// "v1.10.2" → [1, 10, 2]; missing components count as 0.
+    static func components(_ version: String) -> [Int] {
+        var text = version.trimmingCharacters(in: .whitespaces)
+        if text.hasPrefix("v") || text.hasPrefix("V") { text.removeFirst() }
+        return text.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
+    }
+
+    /// Negative when `a < b`, zero when equal, positive when `a > b`.
+    static func compare(_ a: String, _ b: String) -> Int {
+        let lhs = components(a), rhs = components(b)
+        for i in 0..<max(lhs.count, rhs.count) {
+            let l = i < lhs.count ? lhs[i] : 0
+            let r = i < rhs.count ? rhs[i] : 0
+            if l != r { return l < r ? -1 : 1 }
+        }
+        return 0
+    }
+}
+
