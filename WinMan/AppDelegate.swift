@@ -162,6 +162,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var previewPending: DockItem?
     // Dock item the visible preview row belongs to (anchor for the corridor).
     var previewDockItem: DockItem?
+    // Cards currently on screen, in row order, for the 1–9 hotkeys.
+    var previewItems: [WindowPreviewItem] = []
+    var previewApp: NSRunningApplication?
+    // Key codes whose key-down we swallowed; their key-up is swallowed too so
+    // the frontmost app never sees half a keystroke.
+    var swallowedKeyCodes = Set<Int64>()
     // Smoothed pointer heading (Quartz coords) from recent mouse-moved events,
     // used to tell "climbing into the row" from "sliding along the Dock".
     var pointerHeading = CGVector.zero

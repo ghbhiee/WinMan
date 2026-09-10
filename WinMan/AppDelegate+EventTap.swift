@@ -31,6 +31,7 @@ extension AppDelegate {
             (1 << CGEventType.rightMouseDown.rawValue) |
             (1 << CGEventType.mouseMoved.rawValue) |
             (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.keyUp.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue)
 
         guard let tap = CGEvent.tapCreate(
@@ -99,9 +100,18 @@ extension AppDelegate {
             delegate.rememberFrontmostWindowAfterUserClick()
         case .keyDown:
             if AppDelegate.handlePreviewKeyDown(event: event, delegate: delegate) {
+                delegate.swallowedKeyCodes.insert(event.getIntegerValueField(.keyboardEventKeycode))
                 return nil
             }
             if AppDelegate.handleSwitcherKeyDown(event: event, delegate: delegate) {
+                delegate.swallowedKeyCodes.insert(event.getIntegerValueField(.keyboardEventKeycode))
+                return nil
+            }
+        case .keyUp:
+            // Complete the swallow: an app must not receive a key-up for a
+            // key-down it never saw.
+            let code = event.getIntegerValueField(.keyboardEventKeycode)
+            if delegate.swallowedKeyCodes.remove(code) != nil {
                 return nil
             }
         case .flagsChanged:
@@ -121,14 +131,28 @@ extension AppDelegate {
     private static let tabKeyCode: Int64 = 48
     private static let escapeKeyCode: Int64 = 53
 
-    /// Escape closes an open preview row (and is swallowed so the frontmost
-    /// app does not also react to it).
+    /// Virtual key codes of the digit keys (main row and keypad) → 1…9.
+    private static let digitKeyCodes: [Int64: Int] = [
+        18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9,
+        83: 1, 84: 2, 85: 3, 86: 4, 87: 5, 88: 6, 89: 7, 91: 8, 92: 9,
+    ]
+
+    /// While a preview row is open: Escape closes it, and a plain digit picks
+    /// that card. Both are swallowed, so the frontmost app never sees the
+    /// keystroke and its cursor/state stay untouched.
     static func handlePreviewKeyDown(event: CGEvent, delegate: AppDelegate) -> Bool {
-        guard event.getIntegerValueField(.keyboardEventKeycode) == escapeKeyCode,
-              delegate.previewPanel?.isVisible == true,
+        guard delegate.previewPanel?.isVisible == true,
               !delegate.windowSwitcher.isActive else { return false }
-        delegate.suppressPreviewAfterAction(for: 1.0)
-        return true
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        if keyCode == escapeKeyCode {
+            delegate.suppressPreviewAfterAction(for: 1.0)
+            return true
+        }
+        let plain = event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty
+        if plain, let number = digitKeyCodes[keyCode] {
+            return delegate.selectPreviewItem(number: number)
+        }
+        return false
     }
 
     /// Returns true when the key event belongs to the switcher and must be

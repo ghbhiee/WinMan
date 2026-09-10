@@ -11,6 +11,33 @@ extension AppDelegate {
         }
         previewPanel?.dismiss()
         previewDockItem = nil
+        previewItems = []
+        previewApp = nil
+    }
+
+    /// Bring one card's window forward — shared by clicking a card and the
+    /// 1–9 hotkeys. Single-view: only that window comes up, and it becomes
+    /// the Dock-click target.
+    func selectPreviewWindow(_ element: AXUIElement, app: NSRunningApplication) {
+        dismissPreview(reason: "select")
+        windowTracker.setLastActiveWindow(element, for: app)
+        windowTracker.suppressFocusTracking(for: app)
+        if !windowTracker.focusWindow(element, app: app) {
+            NSSound.beep()
+        }
+    }
+
+    /// Hotkey: digit N picks the N-th card of the visible row.
+    @discardableResult
+    func selectPreviewItem(number: Int) -> Bool {
+        guard previewPanel?.isVisible == true,
+              let app = previewApp,
+              number >= 1, number <= previewItems.count else { return false }
+        let item = previewItems[number - 1]
+        WinManLog.app.debug("[hotkey] \(number) → \(item.title, privacy: .public)")
+        suppressPreviewAfterAction(for: 1.0)
+        selectPreviewWindow(item.element, app: app)
+        return true
     }
 
     /// After a click or right-click action, hover preview is suppressed for a
@@ -282,18 +309,13 @@ extension AppDelegate {
 
                 if self.previewPanel == nil { self.previewPanel = PreviewPanel() }
                 self.previewDockItem = dockItem
+                self.previewItems = items
+                self.previewApp = app
 
                 self.previewPanel?.show(
                     for: app, windows: items, nearDockRect: dockItem.rect,
                     onSelect: { [weak self] element, app in
-                        guard let self else { return }
-                        self.dismissPreview()
-                        // Single-view: bring up only the chosen window and pin it.
-                        self.windowTracker.setLastActiveWindow(element, for: app)
-                        self.windowTracker.suppressFocusTracking(for: app)
-                        if !self.windowTracker.focusWindow(element, app: app) {
-                            NSSound.beep()
-                        }
+                        self?.selectPreviewWindow(element, app: app)
                     },
                     onCloseWindow: { [weak self] item in
                         self?.closeWindowFromPreview(item, app: app, dockItem: dockItem)
