@@ -22,6 +22,7 @@ struct WinManApp: App {
             Button(tr("设置", "Settings")) { appDelegate.openSettings() }
             Button(tr("帮助", "Help")) { appDelegate.openHelp() }
             Button(tr("设置向导", "Setup Guide")) { appDelegate.openOnboarding() }
+            Button(tr("检查更新…", "Check for Updates…")) { appDelegate.updater.checkForUpdates() }
             Divider()
             Button(tr("辅助功能设置", "Accessibility Preferences")) { appDelegate.openAccessibilityPreferences() }
             Divider()
@@ -121,6 +122,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let dockMonitor = DockMonitor()
     let windowTracker = WindowTracker()
     lazy var windowSwitcher = WindowSwitcher(windowTracker: windowTracker)
+    lazy var updater: Updater = {
+        let updater = Updater()
+        updater.quitForInstall = { [weak self] in self?.quit() }
+        return updater
+    }()
     var previewPanel: PreviewPanel?
     private var userRequestedQuit = false
     // Internal (not private): these are used by the AppDelegate extensions in

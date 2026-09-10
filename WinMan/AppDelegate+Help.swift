@@ -165,11 +165,14 @@ extension AppDelegate {
 
         section(tr("故障排查", "Troubleshooting"))
         append(tr("""
+        • 菜单栏「检查更新…」可从 GitHub Releases 获取新版本并一键安装。
         • 权限正常但功能失效：退出并重新打开 WinMan。
         • 只有缩略图不可见：检查屏幕录制权限。
         • Dock 移动、缩放或自动隐藏后：移动鼠标几秒，WinMan 会自动刷新图标位置。
         • 从 GitHub 首次下载的未公证版本：可在 Finder 中右键应用并选择“打开”。
         """, """
+        • "Check for Updates…" in the menu bar fetches the latest GitHub
+          release and installs it in place.
         • Permissions look fine but nothing happens: quit and reopen WinMan.
         • Only thumbnails are missing: check Screen Recording permission.
         • After moving or resizing the Dock: move the mouse for a few seconds

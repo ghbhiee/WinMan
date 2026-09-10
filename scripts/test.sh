@@ -33,6 +33,7 @@ xcrun swiftc \
   "$project_dir/WinMan/AppDelegate+HoverPreview.swift" \
   "$project_dir/WinMan/AppDelegate+Help.swift" \
   "$project_dir/WinMan/WindowSwitcher.swift" \
+  "$project_dir/WinMan/Updater.swift" \
   -framework Cocoa \
   -framework SwiftUI \
   -framework CoreGraphics \
